@@ -1,5 +1,20 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786547303485,
+      "tag": "0000_fantastic_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786547588283,
+      "tag": "0001_previous_drax",
+      "breakpoints": true
+    }
+  ]
 }

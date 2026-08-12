@@ -1,42 +1,89 @@
+import { useEffect, useMemo, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import { useAuth } from "./_core/hooks/useAuth";
+import { startLogin } from "./const";
+import { trpc } from "./lib/trpc";
+import { ArrowUpRight, Check, ChevronRight, CircleHelp, Copy, ExternalLink, LogOut, Menu, ShieldCheck, Sparkles, WalletCards, X } from "lucide-react";
+import { toast } from "sonner";
 
-function Router() {
-  // make sure to consider if you need authentication for certain routes
-  return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
-  );
+const demoWallet = { balance: 1840, lifetimeEarned: 12840, lifetimeWithdrawn: 11000 };
+const demoLedger = [
+  { id: 1, kind: "earn", amount: 500, description: "Daily check-in", createdAt: new Date(Date.now() - 86400000) },
+  { id: 2, kind: "earn", amount: 1200, description: "Survey completed", createdAt: new Date(Date.now() - 172800000) },
+  { id: 3, kind: "withdrawal_paid", amount: -5000, description: "PayPal withdrawal", createdAt: new Date(Date.now() - 604800000) },
+];
+const demoTasks = [
+  { id: 1, type: "DAILY", title: "Check in today", description: "Keep your streak alive", reward: 500, claimed: false },
+  { id: 2, type: "SURVEY", title: "Complete a quick survey", description: "Tell us what you think", reward: 1200, claimed: false },
+  { id: 3, type: "REFERRAL", title: "Invite a friend", description: "Earn when they complete a task", reward: 2500, claimed: false },
+];
+const demoProviders = [
+  { id: 1, name: "Playtime", mark: "P", wallUrl: "https://example.com/offerwall/playtime" },
+  { id: 2, name: "AdGate", mark: "A", wallUrl: "https://example.com/offerwall/adgate" },
+  { id: 3, name: "Torox", mark: "T", wallUrl: "https://example.com/offerwall/torox" },
+  { id: 4, name: "AyeT", mark: "Y", wallUrl: "https://example.com/offerwall/ayet" },
+];
+
+type Tab = "Rewards" | "Wallet" | "Me" | "Admin";
+const money = (coins: number) => `$${(coins / 1000).toFixed(2)}`;
+const dateLabel = (date: Date | string) => new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+function Welcome({ onLogin }: { onLogin: () => void }) {
+  return <main className="welcome-shell"><div className="welcome-mark"><span className="orbit-planet" /><span className="orbit-ring" /></div><div className="brand-lockup"><span>ORBIT</span><small>REWARDS IN MOTION</small></div><h1>Small moves.<br /><em>Real rewards.</em></h1><p>Earn points through simple tasks, offers, and referrals. Keep everything in one calm, clear wallet.</p><button className="primary-button wide" onClick={onLogin}>Get started <ArrowUpRight size={17} /></button><button className="text-button" onClick={onLogin}>I have an account</button><div className="welcome-foot"><span className="status-dot" /> SERVER-AUTHORITATIVE REWARDS</div></main>;
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
-function App() {
-  return (
-    <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  );
+function BalanceOrbit({ balance }: { balance: number }) {
+  return <div className="balance-orbit"><div className="balance-glow" /><div className="balance-planet" /><div className="balance-ring ring-one" /><div className="balance-ring ring-two" /><div className="balance-value"><small>AVAILABLE</small><strong>{balance.toLocaleString()}</strong><span>POINTS</span></div></div>;
 }
 
-export default App;
+function OfferSheet({ provider, close }: { provider: any; close: () => void }) {
+  const [frameState, setFrameState] = useState<"loading" | "ready" | "error">("loading");
+  return <div className="sheet-backdrop" onClick={close}><section className="offer-sheet" onClick={e => e.stopPropagation()}><div className="drag-handle" /><header className="sheet-header"><div><span className="eyebrow">NETWORK WALL</span><h2>{provider.name}</h2></div><button className="icon-button" onClick={close} aria-label="Close"><X size={19} /></button></header><div className="webview-frame"><div className="webview-top"><span className="provider-mark small">{provider.mark}</span><span>{provider.name.toUpperCase()} OFFERS</span><span className="webview-lock">SECURE</span></div><div className="webview-body">{frameState === "loading" && <div className="iframe-status"><Sparkles size={18} /> Loading hosted wall…</div>}{frameState !== "error" && <iframe src={provider.wallUrl} title={`${provider.name} offerwall`} className="offerwall-iframe" loading="lazy" onLoad={() => setFrameState("ready")} onError={() => setFrameState("error")} />}{frameState === "error" && <div className="iframe-status"><Sparkles size={18} /><span>Hosted wall unavailable.</span><a href={provider.wallUrl} target="_blank" rel="noreferrer">Open in new tab <ExternalLink size={14} /></a></div>}</div></div></section></div>;
+}
+
+function Rewards({ onOpenProvider, balance, isAuthed, referral }: { onOpenProvider: (provider: any) => void; balance: number; isAuthed: boolean; referral: any }) {
+  const providersQuery = trpc.orbit.providers.useQuery(undefined, { enabled: isAuthed });
+  const tasksQuery = trpc.orbit.tasks.useQuery(undefined, { enabled: isAuthed });
+  const claim = trpc.orbit.claimTask.useMutation({ onSuccess: d => toast.success(`+${d.amount.toLocaleString()} points added`), onError: e => toast.error(e.message) });
+  const providers = providersQuery.data?.length ? providersQuery.data : demoProviders;
+  const tasks = tasksQuery.data?.length ? tasksQuery.data : demoTasks;
+  return <div className="page-content"><section className="page-intro"><div><span className="eyebrow">REWARDS / 01</span><h1>Make your move.</h1><p>Offers, tasks, and tiny wins that add up.</p></div><div className="mini-balance"><span>LIVE BALANCE</span><strong>{balance.toLocaleString()}</strong></div></section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">OFFERWALLS</span><h2>Choose your orbit</h2></div><span className="section-count">{providers.length} NETWORKS</span></div><div className="provider-grid">{providers.map((provider: any) => <button className="provider-card" key={provider.id} onClick={() => onOpenProvider(provider)}><span className="provider-mark">{provider.mark}</span><span className="provider-copy"><strong>{provider.name}</strong><small>Browse offers</small></span><ChevronRight size={17} /></button>)}</div></section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">MISSION LOG</span><h2>Quick tasks</h2></div><span className="section-count">TODAY</span></div><div className="task-list">{tasks.map((task: any) => <div className={`task-row ${task.claimed ? "is-done" : ""}`} key={task.id}><span className="task-status">{task.claimed ? <Check size={13} /> : <span />}</span><span className="task-copy"><span className="mono-tag">{task.type}</span><strong>{task.title}</strong><small>{task.description}</small></span><button className="reward-chip" disabled={task.claimed} onClick={() => isAuthed ? claim.mutate({ taskId: task.id }) : toast.info("Sign in to claim tasks")}>{task.claimed ? "CLAIMED" : `+${task.reward.toLocaleString()}`}</button></div>)}</div></section><section className="referral-strip"><div><span className="eyebrow">YOUR REFERRAL LINK</span><strong>{referral?.link?.replace("https://", "") || "Referral link pending"}</strong></div><button className="icon-button" onClick={() => { navigator.clipboard?.writeText(referral?.link || ""); toast.success("Referral link copied"); }}><Copy size={16} /></button></section></div>;
+}
+
+function Wallet({ wallet, ledger, onWithdraw }: { wallet: any; ledger: any[]; onWithdraw: () => void }) {
+  return <div className="page-content"><section className="wallet-hero"><span className="eyebrow">WALLET / 02</span><div className="wallet-number">{wallet.balance.toLocaleString()}</div><div className="wallet-label">AVAILABLE POINTS <span>≈ {money(wallet.balance)}</span></div><button className="primary-button" onClick={onWithdraw}>Cash out <ArrowUpRight size={16} /></button><small className="fine-print">Minimum $5.00 · PayPal · Reviewed in 24h</small></section><section className="stats-row"><div><span>TOTAL EARNED</span><strong>{wallet.lifetimeEarned.toLocaleString()}</strong></div><div><span>WITHDRAWN</span><strong>{wallet.lifetimeWithdrawn.toLocaleString()}</strong></div></section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">ACTIVITY</span><h2>Ledger</h2></div><span className="section-count">VERIFIED</span></div><div className="ledger-list">{ledger.map((entry: any) => <div className="ledger-row" key={entry.id}><span className={`ledger-dot ${entry.amount > 0 ? "credit" : "debit"}`} /><span className="ledger-copy"><strong>{entry.description}</strong><small>{dateLabel(entry.createdAt)} · {entry.kind === "withdrawal_hold" ? "Pending" : "Completed"}</small></span><strong className={entry.amount > 0 ? "credit-text" : "debit-text"}>{entry.amount > 0 ? "+" : ""}{entry.amount.toLocaleString()}</strong></div>)}</div></section></div>;
+}
+
+function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
+  const [amount, setAmount] = useState(5000); const [email, setEmail] = useState("");
+  const withdraw = trpc.orbit.withdraw.useMutation({ onSuccess: () => { toast.success("Cash-out request submitted"); close(); }, onError: e => toast.error(e.message) });
+  const valid = amount >= 5000 && amount <= wallet.balance && email.includes("@");
+  return <div className="modal-backdrop"><section className="cashout-modal"><header className="sheet-header"><div><span className="eyebrow">WALLET ACTION</span><h2>Cash out</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header><p className="modal-copy">Move your points to PayPal. Every request is reviewed within 24 hours.</p><div className="amount-display"><small>REQUEST AMOUNT</small><strong>{money(amount)}</strong><span>{amount.toLocaleString()} points</span></div><div className="preset-row">{[5000, 10000, wallet.balance].map(value => <button key={value} className={amount === value ? "preset active" : "preset"} onClick={() => setAmount(value)}>{value === wallet.balance ? "MAX" : money(value)}</button>)}</div><label className="field-label">PAYPAL EMAIL<input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" type="email" /></label><button className="primary-button wide" disabled={!valid || withdraw.isPending} onClick={() => withdraw.mutate({ amount, destination: email })}>Request {money(amount)} <ArrowUpRight size={16} /></button><small className="fine-print center">Minimum $5.00 · No fees · Hold-then-review protection</small></section></div>;
+}
+
+function Me({ user, isAdmin, onAdmin, onLogout, referral, onInstall, wallet }: { user: any; isAdmin: boolean; onAdmin: () => void; onLogout: () => void; referral: any; onInstall: () => void; wallet: any }) {
+  const initials = (user?.name || "Orbit User").slice(0, 2).toUpperCase();
+  return <div className="page-content"><section className="profile-head"><div className="avatar">{initials}</div><div><span className="eyebrow">ACCOUNT / 03</span><h1>{user?.name || "Orbit User"}</h1><p>{user?.email || "demo@orbit.app"}</p></div></section><div className="profile-stats"><div><strong>{(wallet?.lifetimeEarned || 0).toLocaleString()}</strong><span>TOTAL EARNED</span></div><div><strong>{(wallet?.lifetimeWithdrawn || 0).toLocaleString()}</strong><span>WITHDRAWN</span></div><div><strong>—</strong><span>DAY STREAK</span></div></div><section className="settings-list"><div className="settings-label">ACCOUNT</div><button className="settings-row"><WalletCards size={17} /><span>Payout method<small>PayPal · Not set</small></span><ChevronRight size={16} /></button><button className="settings-row"><Menu size={17} /><span>Notifications<small>Task and payout updates</small></span><ChevronRight size={16} /></button><button className="settings-row"><CircleHelp size={17} /><span>How Orbit works<small>Learn the basics</small></span><ChevronRight size={16} /></button>{isAdmin && <button className="settings-row admin-row" onClick={onAdmin}><ShieldCheck size={17} /><span>Admin console<small>Owner-only oversight</small></span><ChevronRight size={16} /></button>}<button className="settings-row logout-row" onClick={onLogout}><LogOut size={17} /><span>Sign out</span><ChevronRight size={16} /></button></section><div className="referral-card"><span className="eyebrow">INVITE & EARN</span><strong>Get 2,500 points when your friend completes their first task.</strong><button className="text-button" onClick={() => { navigator.clipboard?.writeText(referral?.link || ""); toast.success("Referral link copied"); }}>Copy your link <Copy size={14} /></button><button className="text-button" onClick={onInstall}>Install Orbit <ArrowUpRight size={15} /></button></div></div>;
+}
+
+function Admin() {
+  const stats = trpc.orbit.admin.stats.useQuery(); const rows = trpc.orbit.admin.withdrawals.useQuery(); const users = trpc.orbit.admin.users.useQuery(); const setRole = trpc.orbit.admin.setUserRole.useMutation({ onSuccess: () => { toast.success("User role updated"); users.refetch(); } }); const review = trpc.orbit.admin.reviewWithdrawal.useMutation({ onSuccess: () => { toast.success("Withdrawal updated"); stats.refetch(); rows.refetch(); } });
+  const data = stats.data || { users: 1248, pendingPayouts: 18, paidOut: 84210, coinsIssued: 1284000 }; const withdrawals = rows.data || [];
+  return <div className="page-content admin-page"><section className="page-intro"><div><span className="eyebrow">OWNER CONSOLE</span><h1>Control room.</h1><p>Platform health, payouts, and audit actions.</p></div><ShieldCheck className="admin-shield" size={27} /></section><div className="admin-kpis"><div><span>USERS</span><strong>{data.users.toLocaleString()}</strong></div><div><span>PENDING PAYOUTS</span><strong>{data.pendingPayouts.toLocaleString()}</strong></div><div><span>PAID OUT</span><strong>{data.paidOut.toLocaleString()}</strong></div><div><span>COINS ISSUED</span><strong>{data.coinsIssued.toLocaleString()}</strong></div></div><section className="section-block"><div className="section-heading"><div><span className="eyebrow">WITHDRAWALS QUEUE</span><h2>Needs review</h2></div></div><div className="withdrawal-table">{withdrawals.map((item: any) => <div className="withdrawal-row" key={item.id}><div><strong>#{item.id} · {money(item.amount)}</strong><small>{item.method} · {item.destination}</small></div><span className="pending-badge">{item.status}</span><div className="table-actions"><button onClick={() => review.mutate({ id: item.id, status: "approved" })}>Approve</button><button onClick={() => review.mutate({ id: item.id, status: "rejected" })}>Reject</button></div></div>)}</div></section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">USER DIRECTORY</span><h2>Accounts</h2></div></div><div className="withdrawal-table">{(users.data || []).map((item: any) => <div className="withdrawal-row" key={item.id}><div><strong>{item.name || "Unnamed user"}</strong><small>{item.email || "No email"}</small></div><span className="pending-badge">{item.role}</span><button className="role-toggle" onClick={() => setRole.mutate({ userId: item.id, role: item.role === "admin" ? "user" : "admin" })}>{item.role === "admin" ? "Demote" : "Make admin"}</button></div>)}</div></section></div>;
+}
+
+function AppShell() {
+  const { user, isAuthenticated, loading, logout } = useAuth();
+  const [tab, setTab] = useState<Tab>("Rewards"); const [provider, setProvider] = useState<any>(null); const [cashOut, setCashOut] = useState(false);
+  const walletQuery = trpc.orbit.wallet.useQuery(undefined, { enabled: isAuthenticated }); const ledgerQuery = trpc.orbit.ledger.useQuery(undefined, { enabled: isAuthenticated }); const referralQuery = trpc.orbit.referral.useQuery(undefined, { enabled: isAuthenticated }); const attachReferral = trpc.orbit.attachReferral.useMutation(); useEffect(() => { const code = new URLSearchParams(window.location.search).get("ref"); if (isAuthenticated && code) attachReferral.mutate({ code }); }, [isAuthenticated]); const [installEvent, setInstallEvent] = useState<any>(null); useEffect(() => { const handler = (event: any) => { event.preventDefault(); setInstallEvent(event); }; window.addEventListener("beforeinstallprompt", handler); return () => window.removeEventListener("beforeinstallprompt", handler); }, []); const install = async () => { if (!installEvent) { toast.info("Use your browser menu to install Orbit"); return; } await installEvent.prompt(); setInstallEvent(null); };
+  const wallet = walletQuery.data || demoWallet; const ledger = ledgerQuery.data || demoLedger; const isAdmin = user?.role === "admin";
+  if (loading) return <div className="loading-shell"><div className="loading-orbit" /><span>CONNECTING TO ORBIT</span></div>;
+  if (!isAuthenticated) return <Welcome onLogin={() => startLogin()} />;
+  const tabs: Tab[] = isAdmin ? ["Rewards", "Wallet", "Me", "Admin"] : ["Rewards", "Wallet", "Me"];
+  return <div className="app-shell"><header className="top-header"><div className="brand-lockup compact"><span>ORBIT</span><small>REWARDS IN MOTION</small></div><div className="header-balance"><span>BALANCE</span><strong>{wallet.balance.toLocaleString()} <i>PTS</i></strong></div></header><main className="app-main">{tab === "Rewards" && <Rewards onOpenProvider={setProvider} balance={wallet.balance} referral={referralQuery.data} isAuthed={isAuthenticated} />}{tab === "Wallet" && <Wallet wallet={wallet} ledger={ledger} onWithdraw={() => setCashOut(true)} />}{tab === "Me" && <Me user={user} wallet={wallet} referral={referralQuery.data} isAdmin={isAdmin} onAdmin={() => setTab("Admin")} onLogout={() => logout()} onInstall={install} />}{tab === "Admin" && isAdmin && <Admin />}</main><nav className="bottom-nav" aria-label="Primary navigation">{tabs.map(item => <button key={item} className={tab === item ? "nav-item active" : "nav-item"} onClick={() => setTab(item)}><span>{item}</span>{tab === item && <i />}</button>)}</nav>{provider && <OfferSheet provider={provider} close={() => setProvider(null)} />}{cashOut && <CashOut wallet={wallet} close={() => setCashOut(false)} />}</div>;
+}
+
+export default function App() { useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []); return <ErrorBoundary><ThemeProvider defaultTheme="dark"><TooltipProvider><Toaster /><AppShell /></TooltipProvider></ThemeProvider></ErrorBoundary>; }
