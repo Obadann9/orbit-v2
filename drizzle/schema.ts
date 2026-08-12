@@ -10,6 +10,9 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  notifyTasks: int("notifyTasks").default(1).notNull(),
+  notifyWithdrawals: int("notifyWithdrawals").default(1).notNull(),
+  notifySystem: int("notifySystem").default(1).notNull(),
 });
 
 export const wallets = mysqlTable("wallets", {
