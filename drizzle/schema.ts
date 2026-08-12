@@ -1,4 +1,12 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import {
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -24,18 +32,35 @@ export const wallets = mysqlTable("wallets", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-export const ledgerEntries = mysqlTable("ledgerEntries", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  kind: mysqlEnum("kind", ["earn", "spend", "transfer_in", "transfer_out", "withdrawal_hold", "withdrawal_release", "withdrawal_paid"]).notNull(),
-  amount: int("amount").notNull(),
-  balanceAfter: int("balanceAfter").notNull(),
-  referenceType: varchar("referenceType", { length: 64 }),
-  referenceId: varchar("referenceId", { length: 128 }),
-  description: varchar("description", { length: 255 }),
-  idempotencyKey: varchar("idempotencyKey", { length: 191 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => ({ idempotencyIdx: uniqueIndex("ledger_idempotency_idx").on(table.userId, table.idempotencyKey) }));
+export const ledgerEntries = mysqlTable(
+  "ledgerEntries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    kind: mysqlEnum("kind", [
+      "earn",
+      "spend",
+      "transfer_in",
+      "transfer_out",
+      "withdrawal_hold",
+      "withdrawal_release",
+      "withdrawal_paid",
+    ]).notNull(),
+    amount: int("amount").notNull(),
+    balanceAfter: int("balanceAfter").notNull(),
+    referenceType: varchar("referenceType", { length: 64 }),
+    referenceId: varchar("referenceId", { length: 128 }),
+    description: varchar("description", { length: 255 }),
+    idempotencyKey: varchar("idempotencyKey", { length: 191 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    idempotencyIdx: uniqueIndex("ledger_idempotency_idx").on(
+      table.userId,
+      table.idempotencyKey
+    ),
+  })
+);
 
 export const tasks = mysqlTable("tasks", {
   id: int("id").autoincrement().primaryKey(),
@@ -46,13 +71,23 @@ export const tasks = mysqlTable("tasks", {
   enabled: int("enabled").default(1).notNull(),
 });
 
-export const taskClaims = mysqlTable("taskClaims", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  taskId: int("taskId").notNull(),
-  claimDate: varchar("claimDate", { length: 10 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => ({ claimIdx: uniqueIndex("task_claim_idx").on(table.userId, table.taskId, table.claimDate) }));
+export const taskClaims = mysqlTable(
+  "taskClaims",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    taskId: int("taskId").notNull(),
+    claimDate: varchar("claimDate", { length: 10 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    claimIdx: uniqueIndex("task_claim_idx").on(
+      table.userId,
+      table.taskId,
+      table.claimDate
+    ),
+  })
+);
 
 export const offerProviders = mysqlTable("offerProviders", {
   id: int("id").autoincrement().primaryKey(),
@@ -69,7 +104,9 @@ export const withdrawals = mysqlTable("withdrawals", {
   amount: int("amount").notNull(),
   method: varchar("method", { length: 32 }).notNull(),
   destination: varchar("destination", { length: 255 }).notNull(),
-  status: mysqlEnum("status", ["pending", "approved", "rejected", "paid"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "paid"])
+    .default("pending")
+    .notNull(),
   reviewedBy: int("reviewedBy"),
   reviewedAt: timestamp("reviewedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -81,7 +118,9 @@ export const referrals = mysqlTable("referrals", {
   referredId: int("referredId").notNull().unique(),
   code: varchar("code", { length: 32 }).notNull(),
   bonus: int("bonus").default(250).notNull(),
-  status: mysqlEnum("status", ["pending", "awarded"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "awarded"])
+    .default("pending")
+    .notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   awardedAt: timestamp("awardedAt"),
 });

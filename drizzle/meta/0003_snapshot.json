@@ -63,9 +63,7 @@
       "compositePrimaryKeys": {
         "auditEvents_id": {
           "name": "auditEvents_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -149,10 +147,7 @@
       "indexes": {
         "ledger_idempotency_idx": {
           "name": "ledger_idempotency_idx",
-          "columns": [
-            "userId",
-            "idempotencyKey"
-          ],
+          "columns": ["userId", "idempotencyKey"],
           "isUnique": true
         }
       },
@@ -160,9 +155,7 @@
       "compositePrimaryKeys": {
         "ledgerEntries_id": {
           "name": "ledgerEntries_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -227,9 +220,7 @@
       "compositePrimaryKeys": {
         "notifications_id": {
           "name": "notifications_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -288,9 +279,7 @@
       "compositePrimaryKeys": {
         "offerProviders_id": {
           "name": "offerProviders_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -364,17 +353,13 @@
       "compositePrimaryKeys": {
         "referrals_id": {
           "name": "referrals_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "referrals_referredId_unique": {
           "name": "referrals_referredId_unique",
-          "columns": [
-            "referredId"
-          ]
+          "columns": ["referredId"]
         }
       },
       "checkConstraint": {}
@@ -422,11 +407,7 @@
       "indexes": {
         "task_claim_idx": {
           "name": "task_claim_idx",
-          "columns": [
-            "userId",
-            "taskId",
-            "claimDate"
-          ],
+          "columns": ["userId", "taskId", "claimDate"],
           "isUnique": true
         }
       },
@@ -434,9 +415,7 @@
       "compositePrimaryKeys": {
         "taskClaims_id": {
           "name": "taskClaims_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -494,9 +473,7 @@
       "compositePrimaryKeys": {
         "tasks_id": {
           "name": "tasks_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -603,17 +580,13 @@
       "compositePrimaryKeys": {
         "users_id": {
           "name": "users_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "users_openId_unique": {
           "name": "users_openId_unique",
-          "columns": [
-            "openId"
-          ]
+          "columns": ["openId"]
         }
       },
       "checkConstraint": {}
@@ -674,17 +647,13 @@
       "compositePrimaryKeys": {
         "wallets_id": {
           "name": "wallets_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "wallets_userId_unique": {
           "name": "wallets_userId_unique",
-          "columns": [
-            "userId"
-          ]
+          "columns": ["userId"]
         }
       },
       "checkConstraint": {}
@@ -763,9 +732,7 @@
       "compositePrimaryKeys": {
         "withdrawals_id": {
           "name": "withdrawals_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
