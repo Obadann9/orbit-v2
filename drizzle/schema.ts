@@ -102,3 +102,15 @@ export type OfferProvider = typeof offerProviders.$inferSelect;
 export type Withdrawal = typeof withdrawals.$inferSelect;
 export type Referral = typeof referrals.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  type: mysqlEnum("type", ["task", "withdrawal", "system"]).notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  body: varchar("body", { length: 255 }).notNull(),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;

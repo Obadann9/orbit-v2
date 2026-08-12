@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  auditEvents, InsertUser, ledgerEntries, offerProviders, referrals, taskClaims, tasks, users, wallets, withdrawals,
+  auditEvents, InsertUser, ledgerEntries, notifications, offerProviders, referrals, taskClaims, tasks, users, wallets, withdrawals,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -58,6 +58,8 @@ export async function getTasks(userId: number) {
     { id: 3, type: "REFERRAL", title: "Invite a friend", description: "Earn when they complete a task", reward: 2500, enabled: 1, claimed: false },
   ];
   const rows = await db.select().from(tasks).where(eq(tasks.enabled, 1));
+  const existingTaskNotice = (await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.type, "task"))).limit(1))[0];
+  if (!existingTaskNotice && rows.length) await db.insert(notifications).values({ userId, type: "task", title: "New tasks available", body: `${rows.length} missions are ready for you today.` });
   const today = new Date().toISOString().slice(0, 10);
   const claims = await db.select().from(taskClaims).where(and(eq(taskClaims.userId, userId), eq(taskClaims.claimDate, today)));
   const claimedIds = new Set(claims.map((claim) => claim.taskId));
@@ -86,6 +88,7 @@ export async function claimTask(userId: number, taskId: number) {
   await db.insert(taskClaims).values({ userId, taskId, claimDate: today });
   await db.update(wallets).set({ balance: nextBalance, lifetimeEarned: (wallet?.lifetimeEarned ?? 0) + task.reward }).where(eq(wallets.userId, userId));
   await db.insert(ledgerEntries).values({ userId, kind: "earn", amount: task.reward, balanceAfter: nextBalance, referenceType: "task", referenceId: String(taskId), description: task.title, idempotencyKey: `task:${userId}:${taskId}:${today}` });
+  await db.insert(notifications).values({ userId, type: "task", title: "Task complete", body: `+${task.reward.toLocaleString()} points added for ${task.title}` });
   await maybeAwardReferral(userId);
   return { ok: true, amount: task.reward, balance: nextBalance };
 }
@@ -108,7 +111,25 @@ export async function createWithdrawal(userId: number, amount: number, destinati
   await db.update(wallets).set({ balance: nextBalance }).where(eq(wallets.userId, userId));
   const result = await db.insert(withdrawals).values({ userId, amount, method: "PayPal", destination, status: "pending" });
   await db.insert(ledgerEntries).values({ userId, kind: "withdrawal_hold", amount: -amount, balanceAfter: nextBalance, referenceType: "withdrawal", referenceId: String(result[0].insertId), description: "Cash-out held for review", idempotencyKey: `withdrawal:${result[0].insertId}` });
+  await db.insert(notifications).values({ userId, type: "withdrawal", title: "Cash-out submitted", body: `Your ${moneyLabel(amount)} request is now under review.` });
   return { id: result[0].insertId, status: "pending", amount };
+}
+
+const moneyLabel = (points: number) => `$${(points / 1000).toFixed(2)}`;
+
+export async function getNotifications(userId: number) {
+  const db = await getDb();
+  if (!db) return [
+    { id: 1, userId, type: "task", title: "New daily mission", body: "Check in today and earn 500 points.", readAt: null, createdAt: new Date() },
+    { id: 2, userId, type: "withdrawal", title: "Cash-out approved", body: "Your PayPal transfer is on its way.", readAt: null, createdAt: new Date(Date.now() - 86400000) },
+  ];
+  return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(30);
+}
+
+export async function markNotificationRead(userId: number, id: number) {
+  const db = await getDb(); if (!db) return { ok: true };
+  await db.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+  return { ok: true };
 }
 
 export async function getAdminStats() {
@@ -122,15 +143,18 @@ export async function getAdminStats() {
   return { users: Number(userRows[0]?.count ?? 0), pendingPayouts: Number(pendingRows[0]?.total ?? 0), paidOut: Number(paidRows[0]?.total ?? 0), coinsIssued: Number(issuedRows[0]?.total ?? 0) };
 }
 
-export async function getWithdrawals() {
-  const db = await getDb(); if (!db) return [{ id: 101, userId: 23, amount: 10000, method: "PayPal", destination: "alex@example.com", status: "pending", createdAt: new Date() }];
-  return db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)).limit(50);
+export async function getWithdrawals(filters?: { status?: "pending" | "approved" | "rejected" | "paid"; method?: string; minAmount?: number; maxAmount?: number; from?: number; to?: number }) {
+  const db = await getDb();
+  if (!db) return [{ id: 101, userId: 23, amount: 10000, method: "PayPal", destination: "alex@example.com", status: "pending", createdAt: new Date() }].filter((item) => (!filters?.status || item.status === filters.status) && (!filters?.method || item.method === filters.method) && (!filters?.minAmount || item.amount >= filters.minAmount) && (!filters?.maxAmount || item.amount <= filters.maxAmount));
+  const rows = await db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)).limit(100);
+  return rows.filter((item) => (!filters?.status || item.status === filters.status) && (!filters?.method || item.method === filters.method) && (!filters?.minAmount || item.amount >= filters.minAmount) && (!filters?.maxAmount || item.amount <= filters.maxAmount) && (!filters?.from || item.createdAt.getTime() >= filters.from) && (!filters?.to || item.createdAt.getTime() <= filters.to));
 }
 
-export async function reviewWithdrawal(adminId: number, id: number, status: "approved" | "rejected") {
+export async function reviewWithdrawal(adminId: number, id: number, status: "approved" | "rejected" | "paid") {
   const db = await getDb(); if (!db) return { ok: true };
-  const item = (await db.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1))[0]; if (!item || item.status !== "pending") throw new Error("Withdrawal is no longer pending");
+  const item = (await db.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1))[0]; if (!item || (status === "paid" ? item.status !== "approved" : item.status !== "pending")) throw new Error("Withdrawal is no longer eligible");
   await db.update(withdrawals).set({ status, reviewedBy: adminId, reviewedAt: new Date() }).where(eq(withdrawals.id, id));
+  await db.insert(notifications).values({ userId: item.userId, type: "withdrawal", title: status === "paid" ? "Cash-out paid" : status === "approved" ? "Cash-out approved" : "Cash-out rejected", body: status === "paid" ? `Your ${moneyLabel(item.amount)} transfer was marked paid.` : status === "approved" ? `Your ${moneyLabel(item.amount)} request was approved.` : `Your ${moneyLabel(item.amount)} request was returned to your balance.` });
   await db.insert(auditEvents).values({ actorUserId: adminId, action: `withdrawal.${status}`, entityType: "withdrawal", entityId: String(id), metadata: JSON.stringify({ amount: item.amount }) });
   if (status === "rejected") {
     const wallet = await ensureWallet(item.userId); const nextBalance = (wallet?.balance ?? 0) + item.amount;

@@ -28,3 +28,29 @@ describe("Orbit financial safeguards", () => {
     expect(stats).toHaveProperty("pendingPayouts");
   });
 });
+
+
+describe("Orbit notifications and admin filters", () => {
+  it("returns an in-app notification list for an authenticated user", async () => {
+    const caller = appRouter.createCaller(context("user"));
+    const result = await caller.orbit.notifications();
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it("accepts status filters only through the admin procedure", async () => {
+    const caller = appRouter.createCaller(context("admin"));
+    const result = await caller.orbit.admin.withdrawals({ status: "pending", minAmount: 5000 });
+    expect(Array.isArray(result)).toBe(true);
+    await expect(appRouter.createCaller(context("user")).orbit.admin.withdrawals({ status: "pending" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+
+describe("Orbit withdrawal event filters", () => {
+  it("accepts date-range filters and paid review input for admins", async () => {
+    const caller = appRouter.createCaller(context("admin"));
+    const result = await caller.orbit.admin.withdrawals({ from: Date.now() - 86400000, to: Date.now() });
+    expect(Array.isArray(result)).toBe(true);
+    await expect(caller.orbit.admin.reviewWithdrawal({ id: 999999, status: "paid" })).rejects.toBeDefined();
+  });
+});

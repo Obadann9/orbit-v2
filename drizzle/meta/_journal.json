@@ -15,6 +15,13 @@
       "when": 1786547588283,
       "tag": "0001_previous_drax",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786548974192,
+      "tag": "0002_thin_emma_frost",
+      "breakpoints": true
     }
   ]
 }
