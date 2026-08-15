@@ -17,6 +17,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
 import { startLogin } from "./const";
 import { trpc } from "./lib/trpc";
+import WithdrawalDetails from "./components/WithdrawalDetails";
 import {
   ArrowUpRight,
   Bell,
@@ -570,7 +571,11 @@ function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
   );
 }
 
-function UserWithdrawals() {
+function UserWithdrawals({
+  onOpenDetails,
+}: {
+  onOpenDetails: (id: number) => void;
+}) {
   const withdrawals = trpc.orbit.withdrawals.useQuery();
   const rows = withdrawals.data || [];
   return (
@@ -584,7 +589,11 @@ function UserWithdrawals() {
       </div>
       <div className="withdrawal-table">
         {rows.map((item: any) => (
-          <div className="withdrawal-row" key={item.id}>
+          <button
+            className="withdrawal-row withdrawal-detail-trigger"
+            key={item.id}
+            onClick={() => onOpenDetails(item.id)}
+          >
             <div>
               <strong>{money(item.amount)}</strong>
               <small>
@@ -594,7 +603,8 @@ function UserWithdrawals() {
             <span className={`pending-badge status-${item.status}`}>
               {item.status}
             </span>
-          </div>
+            <ChevronRight size={16} />
+          </button>
         ))}
         {!rows.length && (
           <p className="notification-empty">No withdrawals yet.</p>
@@ -662,6 +672,7 @@ function Me({
   referral,
   onInstall,
   wallet,
+  onOpenWithdrawal,
 }: {
   user: any;
   isAdmin: boolean;
@@ -670,6 +681,7 @@ function Me({
   referral: any;
   onInstall: () => void;
   wallet: any;
+  onOpenWithdrawal: (id: number) => void;
 }) {
   const initials = (user?.name || "Orbit User").slice(0, 2).toUpperCase();
   return (
@@ -741,7 +753,7 @@ function Me({
           <ChevronRight size={16} />
         </button>
       </section>
-      <UserWithdrawals />
+      <UserWithdrawals onOpenDetails={onOpenWithdrawal} />
       <NotificationSettings />
       <div className="referral-card">
         <span className="eyebrow">INVITE & EARN</span>
@@ -765,7 +777,7 @@ function Me({
   );
 }
 
-function Admin() {
+function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
   const [statusFilter, setStatusFilter] = useState<
     "all" | "pending" | "approved" | "rejected" | "paid"
   >("all");
@@ -1055,6 +1067,12 @@ function Admin() {
                 </small>
               </div>
               <span className="pending-badge">{item.status}</span>
+              <button
+                className="detail-inline-link"
+                onClick={() => onOpenDetails(item.id)}
+              >
+                View details
+              </button>
               <div className="table-actions">
                 <button
                   onClick={() =>
@@ -1145,6 +1163,9 @@ function AppShell() {
   const [cashOut, setCashOut] = useState(false);
   const [lastBalance, setLastBalance] = useState<number | null>(null);
   const [balanceChanged, setBalanceChanged] = useState(false);
+  const [selectedWithdrawalId, setSelectedWithdrawalId] = useState<
+    number | null
+  >(null);
   const walletQuery = trpc.orbit.wallet.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -1220,7 +1241,13 @@ function AppShell() {
         </div>
       </header>
       <main className="app-main">
-        {tab === "Rewards" && (
+        {selectedWithdrawalId && (
+          <WithdrawalDetails
+            id={selectedWithdrawalId}
+            onBack={() => setSelectedWithdrawalId(null)}
+          />
+        )}
+        {!selectedWithdrawalId && tab === "Rewards" && (
           <Rewards
             onOpenProvider={setProvider}
             balance={wallet.balance}
@@ -1228,14 +1255,14 @@ function AppShell() {
             isAuthed={isAuthenticated}
           />
         )}
-        {tab === "Wallet" && (
+        {!selectedWithdrawalId && tab === "Wallet" && (
           <Wallet
             wallet={wallet}
             ledger={ledger}
             onWithdraw={() => setCashOut(true)}
           />
         )}
-        {tab === "Me" && (
+        {!selectedWithdrawalId && tab === "Me" && (
           <Me
             user={user}
             wallet={wallet}
@@ -1244,9 +1271,12 @@ function AppShell() {
             onAdmin={() => setTab("Admin")}
             onLogout={() => logout()}
             onInstall={install}
+            onOpenWithdrawal={id => setSelectedWithdrawalId(id)}
           />
         )}
-        {tab === "Admin" && isAdmin && <Admin />}
+        {!selectedWithdrawalId && tab === "Admin" && isAdmin && (
+          <Admin onOpenDetails={id => setSelectedWithdrawalId(id)} />
+        )}
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
         {tabs.map(item => (

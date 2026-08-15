@@ -9,6 +9,9 @@ import {
   activateTaskWithDependencies,
   getAdminUsers,
   getNotifications,
+  canViewWithdrawal,
+  sortWithdrawalAudit,
+  setWithdrawalDetailsProviderForTests,
   notificationAllowed,
   paginateWithdrawals,
   updateNotificationPreferences,
@@ -16,11 +19,11 @@ import {
 import type { TrpcContext } from "./_core/context";
 import { publishToUser, subscribeToUser } from "./realtime";
 
-function context(role: "user" | "admin" = "user"): TrpcContext {
+function context(role: "user" | "admin" = "user", userId = 7): TrpcContext {
   return {
     user: {
-      id: 7,
-      openId: "orbit-test",
+      id: userId,
+      openId: `orbit-test-${userId}`,
       name: "Orbit Test",
       email: "test@orbit.app",
       loginMethod: "test",
@@ -383,5 +386,147 @@ describe("Orbit profile history and admin trends", () => {
     await expect(
       appRouter.createCaller(context("user")).orbit.admin.trends()
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("Orbit withdrawal details", () => {
+  it("lets the owner see withdrawal and audit while another user cannot", async () => {
+    const restore = setWithdrawalDetailsProviderForTests(async () => ({
+      withdrawal: {
+        id: 502,
+        userId: 7,
+        amount: 6000,
+        method: "PayPal",
+        destination: "owner@example.com",
+        status: "pending",
+        createdAt: new Date("2026-01-04T10:00:00Z"),
+      },
+      audit: [
+        {
+          id: 1,
+          action: "withdrawal.created",
+          createdAt: "2026-01-04T10:00:00Z",
+        },
+      ],
+    }));
+    try {
+      const ownerResult = await appRouter
+        .createCaller(context("user", 7))
+        .orbit.withdrawalDetails({ id: 502 });
+      const otherResult = await appRouter
+        .createCaller(context("user", 8))
+        .orbit.withdrawalDetails({ id: 502 });
+      expect(ownerResult?.withdrawal.userId).toBe(7);
+      expect(ownerResult?.audit).toHaveLength(1);
+      expect(otherResult).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+  it("isolates ownership while allowing admins to view the record", () => {
+    expect(canViewWithdrawal(7, 7, false)).toBe(true);
+    expect(canViewWithdrawal(7, 8, false)).toBe(false);
+    expect(canViewWithdrawal(7, 8, true)).toBe(true);
+  });
+
+  it("orders the audit trail from newest to oldest", () => {
+    const ordered = sortWithdrawalAudit([
+      { createdAt: "2026-01-01T10:00:00Z" },
+      { createdAt: "2026-01-03T10:00:00Z" },
+      { createdAt: "2026-01-02T10:00:00Z" },
+    ]);
+    expect(ordered.map(item => item.createdAt)).toEqual([
+      "2026-01-03T10:00:00Z",
+      "2026-01-02T10:00:00Z",
+      "2026-01-01T10:00:00Z",
+    ]);
+  });
+  it("isolates another user's withdrawal while allowing admin access", async () => {
+    const restore = setWithdrawalDetailsProviderForTests(
+      async (_viewerId, id, isAdmin) => {
+        if (id !== 500) return undefined;
+        return {
+          withdrawal: {
+            id: 500,
+            userId: 42,
+            amount: 7000,
+            method: "PayPal",
+            destination: "owner@example.com",
+            status: "approved",
+            createdAt: new Date("2026-01-01T10:00:00Z"),
+          },
+          audit: [],
+        };
+      }
+    );
+    try {
+      await expect(
+        appRouter
+          .createCaller(context("user"))
+          .orbit.withdrawalDetails({ id: 500 })
+      ).resolves.toBeUndefined();
+      await expect(
+        appRouter
+          .createCaller(context("admin"))
+          .orbit.withdrawalDetails({ id: 500 })
+      ).resolves.toMatchObject({ withdrawal: { userId: 42 } });
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns withdrawal details with newest audit event first", async () => {
+    const restore = setWithdrawalDetailsProviderForTests(async () => ({
+      withdrawal: {
+        id: 501,
+        userId: 7,
+        amount: 8000,
+        method: "PayPal",
+        destination: "test@example.com",
+        status: "paid",
+        createdAt: new Date("2026-01-01T10:00:00Z"),
+      },
+      audit: [
+        {
+          id: 1,
+          action: "withdrawal.created",
+          createdAt: "2026-01-01T10:00:00Z",
+        },
+        { id: 2, action: "withdrawal.paid", createdAt: "2026-01-03T10:00:00Z" },
+      ],
+    }));
+    try {
+      const result = await appRouter
+        .createCaller(context("user"))
+        .orbit.withdrawalDetails({ id: 501 });
+      expect(result?.withdrawal).toHaveProperty("amount", 8000);
+      expect(result?.audit.map(event => event.action)).toEqual([
+        "withdrawal.paid",
+        "withdrawal.created",
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("exposes a protected detail query without leaking unknown withdrawals", async () => {
+    const user = appRouter.createCaller(context("user"));
+    const admin = appRouter.createCaller(context("admin"));
+    await expect(
+      user.orbit.withdrawalDetails({ id: 999999 })
+    ).resolves.toBeUndefined();
+    await expect(
+      admin.orbit.withdrawalDetails({ id: 999999 })
+    ).resolves.toBeUndefined();
+  });
+
+  it("requires authentication for withdrawal details", async () => {
+    const anonymous = appRouter.createCaller({
+      ...context("user"),
+      user: null,
+    });
+    await expect(
+      anonymous.orbit.withdrawalDetails({ id: 101 })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });

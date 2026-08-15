@@ -21,9 +21,10 @@ import {
   getNotifications,
   getProviders,
   getReferral,
-  getWallet,
   getTasks,
   getUserWithdrawals,
+  getWithdrawalDetails,
+  getWallet,
   getWithdrawals,
   markNotificationRead,
   reviewWithdrawal,
@@ -51,6 +52,11 @@ export const appRouter = router({
     withdrawals: protectedProcedure.query(({ ctx }) =>
       getUserWithdrawals(ctx.user.id)
     ),
+    withdrawalDetails: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(({ ctx, input }) =>
+        getWithdrawalDetails(ctx.user.id, input.id, ctx.user.role === "admin")
+      ),
     tasks: protectedProcedure.query(({ ctx }) => getTasks(ctx.user.id)),
     providers: protectedProcedure.query(() => getProviders()),
     claimTask: protectedProcedure

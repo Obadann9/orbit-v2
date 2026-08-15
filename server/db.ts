@@ -446,15 +446,23 @@ export async function createWithdrawal(
     destination,
     status: "pending",
   });
+  const withdrawalId = Number(result[0].insertId);
+  await db.insert(auditEvents).values({
+    actorUserId: userId,
+    action: "withdrawal.created",
+    entityType: "withdrawal",
+    entityId: String(withdrawalId),
+    metadata: JSON.stringify({ amount, method: "PayPal" }),
+  });
   await db.insert(ledgerEntries).values({
     userId,
     kind: "withdrawal_hold",
     amount: -amount,
     balanceAfter: nextBalance,
     referenceType: "withdrawal",
-    referenceId: String(result[0].insertId),
+    referenceId: String(withdrawalId),
     description: "Cash-out held for review",
-    idempotencyKey: `withdrawal:${result[0].insertId}`,
+    idempotencyKey: `withdrawal:${withdrawalId}`,
   });
   await emitNotification(
     userId,
@@ -462,7 +470,102 @@ export async function createWithdrawal(
     "Cash-out submitted",
     `Your ${moneyLabel(amount)} request is now under review.`
   );
-  return { id: result[0].insertId, status: "pending", amount };
+  return { id: withdrawalId, status: "pending", amount };
+}
+
+export function canViewWithdrawal(
+  viewerId: number,
+  ownerId: number,
+  isAdmin: boolean
+) {
+  return isAdmin || viewerId === ownerId;
+}
+
+export function sortWithdrawalAudit<T extends { createdAt: Date | string }>(
+  events: T[]
+) {
+  return [...events].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
+}
+
+type WithdrawalDetailsResult = {
+  withdrawal: {
+    id: number;
+    userId: number;
+    amount: number;
+    method: string;
+    destination: string;
+    status: string;
+    createdAt: Date;
+  };
+  audit: Array<{ createdAt: Date | string; action: string; id?: number }>;
+};
+let withdrawalDetailsProvider:
+  | ((
+      viewerId: number,
+      withdrawalId: number,
+      isAdmin: boolean
+    ) => Promise<WithdrawalDetailsResult | undefined>)
+  | undefined;
+
+export function setWithdrawalDetailsProviderForTests(
+  provider: typeof withdrawalDetailsProvider
+) {
+  withdrawalDetailsProvider = provider;
+  return () => {
+    withdrawalDetailsProvider = undefined;
+  };
+}
+
+export async function getWithdrawalDetails(
+  viewerId: number,
+  withdrawalId: number,
+  isAdmin = false
+) {
+  if (withdrawalDetailsProvider) {
+    const result = await withdrawalDetailsProvider(
+      viewerId,
+      withdrawalId,
+      isAdmin
+    );
+    if (
+      !result ||
+      !canViewWithdrawal(viewerId, result.withdrawal.userId, isAdmin)
+    )
+      return undefined;
+    return { ...result, audit: sortWithdrawalAudit(result.audit) };
+  }
+  const db = await getDb();
+  if (!db) return undefined;
+  const withdrawal = (
+    await db
+      .select()
+      .from(withdrawals)
+      .where(
+        isAdmin
+          ? eq(withdrawals.id, withdrawalId)
+          : and(
+              eq(withdrawals.id, withdrawalId),
+              eq(withdrawals.userId, viewerId)
+            )
+      )
+      .limit(1)
+  )[0];
+  if (!withdrawal || !canViewWithdrawal(viewerId, withdrawal.userId, isAdmin))
+    return undefined;
+  const audit = await db
+    .select()
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.entityType, "withdrawal"),
+        eq(auditEvents.entityId, String(withdrawalId))
+      )
+    )
+    .orderBy(desc(auditEvents.createdAt));
+  return { withdrawal, audit: sortWithdrawalAudit(audit) };
 }
 
 const moneyLabel = (points: number) => `$${(points / 1000).toFixed(2)}`;
