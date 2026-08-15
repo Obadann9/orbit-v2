@@ -9,18 +9,21 @@ import {
   router,
 } from "./_core/trpc";
 import {
+  activateTask,
   attachReferral,
   claimTask,
   createWithdrawal,
   getAdminStats,
+  getAdminTrends,
   getAdminUsers,
   getLedger,
   getNotificationPreferences,
   getNotifications,
   getProviders,
   getReferral,
-  getTasks,
   getWallet,
+  getTasks,
+  getUserWithdrawals,
   getWithdrawals,
   markNotificationRead,
   reviewWithdrawal,
@@ -45,6 +48,9 @@ export const appRouter = router({
   orbit: router({
     wallet: protectedProcedure.query(({ ctx }) => getWallet(ctx.user.id)),
     ledger: protectedProcedure.query(({ ctx }) => getLedger(ctx.user.id)),
+    withdrawals: protectedProcedure.query(({ ctx }) =>
+      getUserWithdrawals(ctx.user.id)
+    ),
     tasks: protectedProcedure.query(({ ctx }) => getTasks(ctx.user.id)),
     providers: protectedProcedure.query(() => getProviders()),
     claimTask: protectedProcedure
@@ -108,6 +114,17 @@ export const appRouter = router({
       ),
     admin: router({
       stats: adminProcedure.query(() => getAdminStats()),
+      trends: adminProcedure.query(() => getAdminTrends()),
+      activateTask: adminProcedure
+        .input(
+          z.object({
+            taskId: z.number().int().positive(),
+            enabled: z.boolean(),
+          })
+        )
+        .mutation(({ ctx, input }) =>
+          activateTask(ctx.user.id, input.taskId, input.enabled)
+        ),
       withdrawals: adminProcedure
         .input(
           z

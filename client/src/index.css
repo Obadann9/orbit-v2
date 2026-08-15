@@ -1276,3 +1276,54 @@ h2 {
     scroll-behavior: auto !important;
   }
 }
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.chart-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    rgba(26, 23, 52, 0.88),
+    rgba(12, 12, 27, 0.88)
+  );
+}
+.chart-label {
+  color: var(--dim);
+  font:
+    9px "Space Mono",
+    monospace;
+  letter-spacing: 0.12em;
+}
+.chart-frame {
+  height: 190px;
+  margin-top: 12px;
+}
+.user-withdrawals {
+  margin-top: 30px;
+}
+.status-approved,
+.status-paid {
+  color: var(--lime);
+  border-color: rgba(200, 255, 66, 0.35);
+}
+.status-rejected {
+  color: #ff8ea8;
+  border-color: rgba(255, 142, 168, 0.35);
+}
+.status-pending {
+  color: #f3d57b;
+}
+@media (max-width: 700px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-frame {
+    height: 165px;
+  }
+}

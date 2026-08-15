@@ -69,6 +69,7 @@ export const tasks = mysqlTable("tasks", {
   description: varchar("description", { length: 255 }),
   reward: int("reward").notNull(),
   enabled: int("enabled").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const taskClaims = mysqlTable(

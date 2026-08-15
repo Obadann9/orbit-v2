@@ -3,6 +3,10 @@ import { appRouter } from "./routers";
 import {
   createWithdrawal,
   emitNotification,
+  taskActivationNotification,
+  notifyTaskActivation,
+  activateTask,
+  activateTaskWithDependencies,
   getAdminUsers,
   getNotifications,
   notificationAllowed,
@@ -10,6 +14,7 @@ import {
   updateNotificationPreferences,
 } from "./db";
 import type { TrpcContext } from "./_core/context";
+import { publishToUser, subscribeToUser } from "./realtime";
 
 function context(role: "user" | "admin" = "user"): TrpcContext {
   return {
@@ -291,5 +296,92 @@ describe("Orbit admin safety", () => {
     await expect(
       caller.orbit.admin.setUserRole({ userId: 7, role: "user" })
     ).rejects.toThrow("cannot demote yourself");
+  });
+});
+
+describe("Orbit task activation notifications", () => {
+  it("activates a disabled task and dispatches its notification without getTasks", async () => {
+    const writes: string[] = [];
+    const unsubscribe = subscribeToUser(7, {
+      write: (payload: string) => writes.push(payload),
+    } as any);
+    const result = await activateTask(1, 42, true, {
+      loadTask: async () => ({
+        id: 42,
+        title: "Weekend survey",
+        reward: 1200,
+        enabled: 0,
+      }),
+      setEnabled: async () => undefined,
+      listUserIds: async () => [7],
+      audit: async () => undefined,
+      emit: async (userId, type, title, body) => {
+        expect(type).toBe("task");
+        publishToUser(userId, { type, title, body });
+      },
+    });
+    expect(result).toEqual({ ok: true, enabled: true });
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain("New task available");
+    unsubscribe();
+  });
+
+  it("creates and dispatches a publish notification without reading the task list", async () => {
+    const events: Array<{ userId: number; title: string }> = [];
+    const delivered = await notifyTaskActivation(
+      { title: "Weekend survey", reward: 1200 },
+      [7, 8],
+      async (userId, type, title) => {
+        expect(type).toBe("task");
+        events.push({ userId, title });
+      }
+    );
+    expect(delivered).toBe(2);
+    expect(events).toEqual([
+      { userId: 7, title: "New task available" },
+      { userId: 8, title: "New task available" },
+    ]);
+  });
+});
+
+describe("Orbit realtime notifications", () => {
+  it("publishes an event only while the user is subscribed", () => {
+    const writes: string[] = [];
+    const response = {
+      write: (payload: string) => writes.push(payload),
+    } as any;
+    const unsubscribe = subscribeToUser(7, response);
+    publishToUser(7, {
+      type: "withdrawal",
+      title: "Paid",
+      body: "Your transfer is paid.",
+    });
+    expect(writes).toHaveLength(1);
+    unsubscribe();
+    publishToUser(7, {
+      type: "task",
+      title: "New task",
+      body: "A new task is ready.",
+    });
+    expect(writes).toHaveLength(1);
+  });
+});
+
+describe("Orbit profile history and admin trends", () => {
+  it("exposes a protected withdrawal history for the authenticated user", async () => {
+    const caller = appRouter.createCaller(context("user"));
+    const result = await caller.orbit.withdrawals();
+    expect(Array.isArray(result)).toBe(true);
+    if (result[0]) expect(result[0]).toHaveProperty("status");
+  });
+
+  it("keeps trend analytics behind the admin procedure", async () => {
+    const admin = appRouter.createCaller(context("admin"));
+    const trends = await admin.orbit.admin.trends();
+    expect(trends).toHaveLength(7);
+    expect(trends[0]).toHaveProperty("withdrawals");
+    await expect(
+      appRouter.createCaller(context("user")).orbit.admin.trends()
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

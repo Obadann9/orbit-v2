@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -21,6 +32,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 const demoWallet = {
@@ -163,7 +175,35 @@ function BalanceOrbit({ balance }: { balance: number }) {
 
 function NotificationCenter() {
   const [open, setOpen] = useState(false);
-  const notifications = trpc.orbit.notifications.useQuery();
+  const seenIds = useRef(new Set<number>());
+  const notifications = trpc.orbit.notifications.useQuery(undefined, {
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+  });
+  useEffect(() => {
+    if (!notifications.data) return;
+    const fresh = notifications.data.filter(
+      item => !seenIds.current.has(item.id)
+    );
+    if (seenIds.current.size > 0)
+      fresh.slice(0, 3).forEach(item => toast.info(item.title));
+    notifications.data.forEach(item => seenIds.current.add(item.id));
+  }, [notifications.data]);
+  useEffect(() => {
+    const stream = new EventSource("/api/realtime/notifications");
+    stream.onmessage = event => {
+      try {
+        const item = JSON.parse(event.data);
+        if (item.id) seenIds.current.add(item.id);
+        toast.info(item.title);
+        notifications.refetch();
+      } catch {
+        // Keep the polling fallback active for malformed events.
+      }
+    };
+    stream.onerror = () => stream.close();
+    return () => stream.close();
+  }, [notifications.refetch]);
   const markRead = trpc.orbit.markNotificationRead.useMutation({
     onSuccess: () => notifications.refetch(),
   });
@@ -530,6 +570,40 @@ function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
   );
 }
 
+function UserWithdrawals() {
+  const withdrawals = trpc.orbit.withdrawals.useQuery();
+  const rows = withdrawals.data || [];
+  return (
+    <section className="user-withdrawals section-block">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">CASH-OUT HISTORY</span>
+          <h2>Your withdrawals</h2>
+        </div>
+        <span className="section-count">{rows.length} REQUESTS</span>
+      </div>
+      <div className="withdrawal-table">
+        {rows.map((item: any) => (
+          <div className="withdrawal-row" key={item.id}>
+            <div>
+              <strong>{money(item.amount)}</strong>
+              <small>
+                {item.method} · {dateLabel(item.createdAt)}
+              </small>
+            </div>
+            <span className={`pending-badge status-${item.status}`}>
+              {item.status}
+            </span>
+          </div>
+        ))}
+        {!rows.length && (
+          <p className="notification-empty">No withdrawals yet.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function NotificationSettings() {
   const prefs = trpc.orbit.notificationPreferences.useQuery();
   const utils = trpc.useUtils();
@@ -667,6 +741,7 @@ function Me({
           <ChevronRight size={16} />
         </button>
       </section>
+      <UserWithdrawals />
       <NotificationSettings />
       <div className="referral-card">
         <span className="eyebrow">INVITE & EARN</span>
@@ -732,6 +807,7 @@ function Admin() {
     ]
   );
   const stats = trpc.orbit.admin.stats.useQuery();
+  const trends = trpc.orbit.admin.trends.useQuery();
   const rows = trpc.orbit.admin.withdrawals.useQuery(filterInput);
   const users = trpc.orbit.admin.users.useQuery();
   const setRole = trpc.orbit.admin.setUserRole.useMutation({
@@ -783,6 +859,102 @@ function Admin() {
           <strong>{data.coinsIssued.toLocaleString()}</strong>
         </div>
       </div>
+      <section className="admin-charts section-block">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">LAST 7 DAYS</span>
+            <h2>Activity trends</h2>
+          </div>
+          <span className="section-count">LIVE VIEW</span>
+        </div>
+        <div className="chart-grid">
+          <div className="chart-card">
+            <span className="chart-label">WITHDRAWAL VOLUME</span>
+            <div className="chart-frame">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trends.data || []}>
+                  <defs>
+                    <linearGradient
+                      id="withdrawalGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="#c8ff42"
+                        stopOpacity={0.35}
+                      />
+                      <stop offset="100%" stopColor="#c8ff42" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.08)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#77758f", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis hide />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#17152b",
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      borderRadius: 8,
+                      color: "#fff",
+                    }}
+                    formatter={(value: number) => [
+                      `${value.toLocaleString()} pts`,
+                      "Volume",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="withdrawals"
+                    stroke="#c8ff42"
+                    fill="url(#withdrawalGradient)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="chart-card">
+            <span className="chart-label">USER ACTIVITY</span>
+            <div className="chart-frame">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={trends.data || []}>
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.08)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#77758f", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis hide />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#17152b",
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      borderRadius: 8,
+                      color: "#fff",
+                    }}
+                    formatter={(value: number) => [value, "Users"]}
+                  />
+                  <Bar dataKey="users" fill="#9d7dff" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </section>
       <section className="section-block">
         <div className="section-heading">
           <div>

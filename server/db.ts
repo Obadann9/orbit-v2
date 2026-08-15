@@ -14,6 +14,7 @@ import {
   withdrawals,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { publishToUser } from "./realtime";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -88,7 +89,20 @@ export async function ensureWallet(userId: number) {
   return result[0];
 }
 
+export async function recordUserActivity(userId: number, action: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(auditEvents).values({
+    actorUserId: userId,
+    action: "user.activity",
+    entityType: "user",
+    entityId: String(userId),
+    metadata: JSON.stringify({ action }),
+  });
+}
+
 export async function getWallet(userId: number) {
+  await recordUserActivity(userId, "wallet_view");
   return ensureWallet(userId);
 }
 
@@ -132,7 +146,101 @@ export async function getLedger(userId: number) {
     .limit(30);
 }
 
+export function taskActivationNotification(title: string, reward: number) {
+  return {
+    type: "task" as const,
+    title: "New task available",
+    body: `${title} is now live. Earn ${reward.toLocaleString()} points.`,
+  };
+}
+
+export async function notifyTaskActivation(
+  task: { title: string; reward: number },
+  userIds: number[],
+  emit: typeof emitNotification = emitNotification
+) {
+  const message = taskActivationNotification(task.title, task.reward);
+  await Promise.all(
+    userIds.map(userId =>
+      emit(userId, message.type, message.title, message.body)
+    )
+  );
+  return userIds.length;
+}
+
+type ActivatableTask = {
+  id: number;
+  title: string;
+  reward: number;
+  enabled: number;
+};
+
+type TaskActivationDeps = {
+  loadTask: (taskId: number) => Promise<ActivatableTask | undefined>;
+  setEnabled: (taskId: number, enabled: boolean) => Promise<void>;
+  listUserIds: () => Promise<number[]>;
+  audit: (
+    adminId: number,
+    taskId: number,
+    enabled: boolean,
+    title: string
+  ) => Promise<void>;
+  emit?: typeof emitNotification;
+};
+
+export async function activateTaskWithDependencies(
+  adminId: number,
+  taskId: number,
+  enabled: boolean,
+  deps: TaskActivationDeps
+) {
+  const task = await deps.loadTask(taskId);
+  if (!task) throw new Error("Task not found");
+  await deps.setEnabled(taskId, enabled);
+  if (enabled && task.enabled === 0) {
+    await notifyTaskActivation(task, await deps.listUserIds(), deps.emit);
+  }
+  await deps.audit(adminId, taskId, enabled, task.title);
+  return { ok: true, enabled };
+}
+
+export async function activateTask(
+  adminId: number,
+  taskId: number,
+  enabled: boolean,
+  injectedDeps?: TaskActivationDeps
+) {
+  if (injectedDeps)
+    return activateTaskWithDependencies(adminId, taskId, enabled, injectedDeps);
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  return activateTaskWithDependencies(adminId, taskId, enabled, {
+    loadTask: async id =>
+      (await db.select().from(tasks).where(eq(tasks.id, id)).limit(1))[0],
+    setEnabled: async (id, value) => {
+      await db
+        .update(tasks)
+        .set({ enabled: value ? 1 : 0 })
+        .where(eq(tasks.id, id));
+    },
+    listUserIds: async () =>
+      (await db.select({ id: users.id }).from(users).limit(10000)).map(
+        user => user.id
+      ),
+    audit: async (actorId, id, value, title) => {
+      await db.insert(auditEvents).values({
+        actorUserId: actorId,
+        action: value ? "task.activate" : "task.deactivate",
+        entityType: "task",
+        entityId: String(id),
+        metadata: JSON.stringify({ title }),
+      });
+    },
+  });
+}
+
 export async function getTasks(userId: number) {
+  await recordUserActivity(userId, "tasks_view");
   const db = await getDb();
   if (!db)
     return [
@@ -165,22 +273,6 @@ export async function getTasks(userId: number) {
       },
     ];
   const rows = await db.select().from(tasks).where(eq(tasks.enabled, 1));
-  const existingTaskNotice = (
-    await db
-      .select()
-      .from(notifications)
-      .where(
-        and(eq(notifications.userId, userId), eq(notifications.type, "task"))
-      )
-      .limit(1)
-  )[0];
-  if (!existingTaskNotice && rows.length)
-    await emitNotification(
-      userId,
-      "task",
-      "New tasks available",
-      `${rows.length} missions are ready for you today.`
-    );
   const today = new Date().toISOString().slice(0, 10);
   const claims = await db
     .select()
@@ -433,7 +525,17 @@ export async function emitNotification(
   const prefs = await getNotificationPreferences(userId);
   if (!notificationAllowed(prefs, type)) return;
   const db = await getDb();
-  if (db) await db.insert(notifications).values({ userId, type, title, body });
+  if (db) {
+    const result = await db
+      .insert(notifications)
+      .values({ userId, type, title, body });
+    publishToUser(userId, {
+      id: Number(result[0].insertId),
+      type,
+      title,
+      body,
+    });
+  }
 }
 
 export async function getNotifications(userId: number) {
@@ -893,4 +995,76 @@ export async function getAdminUsers() {
     .from(users)
     .orderBy(desc(users.createdAt))
     .limit(100);
+}
+
+export async function getUserWithdrawals(userId: number) {
+  const db = await getDb();
+  if (!db)
+    return [
+      {
+        id: 101,
+        userId,
+        amount: 5000,
+        method: "PayPal",
+        destination: "user@example.com",
+        status: "paid" as const,
+        createdAt: new Date(Date.now() - 86400000 * 4),
+      },
+      {
+        id: 102,
+        userId,
+        amount: 8000,
+        method: "PayPal",
+        destination: "user@example.com",
+        status: "pending" as const,
+        createdAt: new Date(Date.now() - 86400000),
+      },
+    ];
+  return db
+    .select()
+    .from(withdrawals)
+    .where(eq(withdrawals.userId, userId))
+    .orderBy(desc(withdrawals.createdAt))
+    .limit(30);
+}
+
+export async function getAdminTrends() {
+  const db = await getDb();
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - index));
+    return date;
+  });
+  if (!db)
+    return days.map((date, index) => ({
+      label: date.toLocaleDateString(undefined, { weekday: "short" }),
+      withdrawals: [2, 4, 3, 6, 5, 8, 7][index] ?? 0,
+      users: [4, 6, 5, 9, 8, 11, 13][index] ?? 0,
+    }));
+  const [withdrawalRows, userRows, activityRows] = await Promise.all([
+    db
+      .select({ amount: withdrawals.amount, createdAt: withdrawals.createdAt })
+      .from(withdrawals)
+      .limit(500),
+    db.select({ createdAt: users.createdAt }).from(users).limit(500),
+    db
+      .select({ createdAt: auditEvents.createdAt })
+      .from(auditEvents)
+      .where(eq(auditEvents.action, "user.activity"))
+      .limit(1000),
+  ]);
+  return days.map(date => {
+    const next = new Date(date);
+    next.setDate(next.getDate() + 1);
+    return {
+      label: date.toLocaleDateString(undefined, { weekday: "short" }),
+      withdrawals: withdrawalRows
+        .filter(row => row.createdAt >= date && row.createdAt < next)
+        .reduce((sum, row) => sum + row.amount, 0),
+      users: activityRows.filter(
+        row => row.createdAt >= date && row.createdAt < next
+      ).length,
+    };
+  });
 }

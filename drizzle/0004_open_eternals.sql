@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `createdAt` timestamp DEFAULT (now()) NOT NULL;
