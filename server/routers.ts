@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
+import { TRPCError } from "@trpc/server";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import {
@@ -21,6 +22,7 @@ import {
   getLedger,
   getNotificationPreferences,
   getNotifications,
+  getOfferwallProviderSettings,
   getProviders,
   getReferral,
   getTasks,
@@ -32,6 +34,7 @@ import {
   reviewWithdrawal,
   requestKyc,
   reviewKyc,
+  saveOfferwallProviderSettings,
   submitKyc,
   updateNotificationPreferences,
   setUserRole,
@@ -98,9 +101,13 @@ export const appRouter = router({
           amount: z.number().int().positive(),
         })
       )
-      .mutation(({ ctx, input }) =>
-        transferPoints(ctx.user.id, input.recipientId, input.amount)
-      ),
+      .mutation(() => {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Point transfers are temporarily disabled for fraud prevention",
+        });
+      }),
     referral: protectedProcedure.query(({ ctx }) => getReferral(ctx.user.id)),
     attachReferral: protectedProcedure
       .input(z.object({ code: z.string().min(2).max(32) }))
@@ -130,6 +137,37 @@ export const appRouter = router({
     admin: router({
       stats: adminProcedure.query(() => getAdminStats()),
       trends: adminProcedure.query(() => getAdminTrends()),
+      offerwallProviders: adminProcedure.query(() =>
+        getOfferwallProviderSettings()
+      ),
+      saveOfferwallProvider: adminProcedure
+        .input(
+          z.object({
+            id: z.number().int().positive().optional(),
+            name: z.string().min(1).max(80),
+            mark: z.string().min(1).max(12),
+            wallUrl: z.string().url().max(2000),
+            enabled: z.boolean(),
+            sortOrder: z.number().int().min(0).max(999),
+            providerKey: z
+              .string()
+              .regex(/^[a-z0-9][a-z0-9_-]{1,62}$/)
+              .max(64),
+            secretEnvKey: z
+              .string()
+              .regex(/^[A-Z][A-Z0-9_]{2,127}$/)
+              .max(128),
+            signatureMode: z.enum(["hmac_body", "hmac_query"]),
+            signatureHeader: z.string().min(1).max(80),
+            signatureField: z.string().min(1).max(80),
+            transactionIdField: z.string().min(1).max(80),
+            userIdField: z.string().min(1).max(80),
+            amountField: z.string().min(1).max(80),
+            offerNameField: z.string().min(1).max(80),
+            allowedIps: z.string().max(2000).optional(),
+          })
+        )
+        .mutation(({ input }) => saveOfferwallProviderSettings(input)),
       kycRequests: adminProcedure
         .input(
           z

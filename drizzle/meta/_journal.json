@@ -43,6 +43,13 @@
       "when": 1786793057823,
       "tag": "0005_lowly_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1786801315092,
+      "tag": "0006_low_the_fallen",
+      "breakpoints": true
     }
   ]
 }

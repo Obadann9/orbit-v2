@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import {
   createWithdrawal,
+  exceedsDailyWithdrawalLimit,
   emitNotification,
   taskActivationNotification,
   notifyTaskActivation,
@@ -15,8 +16,10 @@ import {
   setWithdrawalDetailsProviderForTests,
   notificationAllowed,
   paginateWithdrawals,
+  transferPoints,
   updateNotificationPreferences,
 } from "./db";
+import { MINIMUM_WITHDRAWAL_POINTS, POINTS_PER_USD } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 import { publishToUser, subscribeToUser } from "./realtime";
 import {
@@ -47,6 +50,27 @@ describe("Orbit financial safeguards", () => {
     await expect(createWithdrawal(7, 4999, "test@orbit.app")).rejects.toThrow(
       "Minimum withdrawal"
     );
+  });
+
+  it("uses the approved 1000-points-per-dollar conversion consistently", () => {
+    expect(POINTS_PER_USD).toBe(1000);
+    expect(MINIMUM_WITHDRAWAL_POINTS).toBe(5000);
+  });
+
+  it("enforces the approved 50000-point daily withdrawal ceiling", () => {
+    expect(exceedsDailyWithdrawalLimit(45_000, 5_000)).toBe(false);
+    expect(exceedsDailyWithdrawalLimit(45_001, 5_000)).toBe(true);
+  });
+
+  it("blocks all point transfers until fraud controls are introduced", async () => {
+    await expect(transferPoints(7, 8, 100)).rejects.toThrow(
+      "temporarily disabled"
+    );
+    await expect(
+      appRouter
+        .createCaller(context("user"))
+        .orbit.transfer({ recipientId: 8, amount: 100 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("does not expose admin stats to regular users", async () => {

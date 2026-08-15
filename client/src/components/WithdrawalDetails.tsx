@@ -1,5 +1,6 @@
 import { ArrowLeft, Check, Clock3, FileText, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { POINTS_PER_USD } from "@shared/const";
 
 const actionLabel: Record<string, string> = {
   "withdrawal.created": "Request submitted",
@@ -16,7 +17,7 @@ function formatDate(value: Date | string) {
 }
 
 function money(points: number) {
-  return `$${(points / 1000).toFixed(2)}`;
+  return `$${(points / POINTS_PER_USD).toFixed(2)}`;
 }
 
 export default function WithdrawalDetails({

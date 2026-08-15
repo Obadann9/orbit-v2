@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import { MINIMUM_WITHDRAWAL_POINTS, POINTS_PER_USD } from "@shared/const";
 import {
   Area,
   AreaChart,
@@ -18,6 +19,7 @@ import { useAuth } from "./_core/hooks/useAuth";
 import { startLogin } from "./const";
 import { trpc } from "./lib/trpc";
 import WithdrawalDetails from "./components/WithdrawalDetails";
+import OfferwallSettings from "./components/OfferwallSettings";
 import { ORBIT_POLICY_NOTICE, ORBIT_POLICY_SECTIONS } from "./policyContent";
 import {
   ArrowUpRight,
@@ -123,7 +125,7 @@ const demoProviders = [
 ];
 
 type Tab = "Rewards" | "Wallet" | "Me" | "Admin";
-const money = (coins: number) => `$${(coins / 1000).toFixed(2)}`;
+const money = (coins: number) => `$${(coins / POINTS_PER_USD).toFixed(2)}`;
 const dateLabel = (date: Date | string) =>
   new Date(date).toLocaleDateString(undefined, {
     month: "short",
@@ -535,7 +537,7 @@ function Wallet({
 }
 
 export function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
-  const [amount, setAmount] = useState(5000);
+  const [amount, setAmount] = useState(MINIMUM_WITHDRAWAL_POINTS);
   const [email, setEmail] = useState("");
   const orbitUtils = trpc.useUtils();
   const withdraw = trpc.orbit.withdraw.useMutation({
@@ -548,7 +550,9 @@ export function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
     onError: e => toast.error(e.message),
   });
   const valid =
-    amount >= 5000 && amount <= wallet.balance && email.includes("@");
+    amount >= MINIMUM_WITHDRAWAL_POINTS &&
+    amount <= wallet.balance &&
+    email.includes("@");
   return (
     <div className="modal-backdrop">
       <section className="cashout-modal">
@@ -570,15 +574,17 @@ export function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
           <span>{amount.toLocaleString()} points</span>
         </div>
         <div className="preset-row">
-          {[5000, 10000, wallet.balance].map(value => (
-            <button
-              key={value}
-              className={amount === value ? "preset active" : "preset"}
-              onClick={() => setAmount(value)}
-            >
-              {value === wallet.balance ? "MAX" : money(value)}
-            </button>
-          ))}
+          {[MINIMUM_WITHDRAWAL_POINTS, 10 * POINTS_PER_USD, wallet.balance].map(
+            value => (
+              <button
+                key={value}
+                className={amount === value ? "preset active" : "preset"}
+                onClick={() => setAmount(value)}
+              >
+                {value === wallet.balance ? "MAX" : money(value)}
+              </button>
+            )
+          )}
         </div>
         <label className="field-label">
           PAYPAL EMAIL
@@ -1462,6 +1468,7 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
             )}
         </div>
       </section>
+      <OfferwallSettings />
       <section className="section-block">
         <div className="section-heading">
           <div>

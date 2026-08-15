@@ -90,14 +90,65 @@ export const taskClaims = mysqlTable(
   })
 );
 
-export const offerProviders = mysqlTable("offerProviders", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 80 }).notNull(),
-  mark: varchar("mark", { length: 12 }).notNull(),
-  wallUrl: text("wallUrl").notNull(),
-  enabled: int("enabled").default(1).notNull(),
-  sortOrder: int("sortOrder").default(0).notNull(),
-});
+export const offerProviders = mysqlTable(
+  "offerProviders",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 80 }).notNull(),
+    mark: varchar("mark", { length: 12 }).notNull(),
+    wallUrl: text("wallUrl").notNull(),
+    enabled: int("enabled").default(1).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    providerKey: varchar("providerKey", { length: 64 }),
+    secretEnvKey: varchar("secretEnvKey", { length: 128 }),
+    signatureMode: mysqlEnum("signatureMode", ["hmac_body", "hmac_query"])
+      .default("hmac_body")
+      .notNull(),
+    signatureHeader: varchar("signatureHeader", { length: 80 })
+      .default("x-orbit-signature")
+      .notNull(),
+    signatureField: varchar("signatureField", { length: 80 })
+      .default("signature")
+      .notNull(),
+    transactionIdField: varchar("transactionIdField", { length: 80 })
+      .default("transactionId")
+      .notNull(),
+    userIdField: varchar("userIdField", { length: 80 })
+      .default("userId")
+      .notNull(),
+    amountField: varchar("amountField", { length: 80 })
+      .default("amount")
+      .notNull(),
+    offerNameField: varchar("offerNameField", { length: 80 })
+      .default("offerName")
+      .notNull(),
+    allowedIps: text("allowedIps"),
+  },
+  table => ({
+    providerKeyIdx: uniqueIndex("offer_provider_key_idx").on(table.providerKey),
+  })
+);
+
+export const offerwallPostbacks = mysqlTable(
+  "offerwallPostbacks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    providerId: int("providerId").notNull(),
+    providerTransactionId: varchar("providerTransactionId", {
+      length: 191,
+    }).notNull(),
+    userId: int("userId").notNull(),
+    amount: int("amount").notNull(),
+    offerName: varchar("offerName", { length: 255 }),
+    payloadHash: varchar("payloadHash", { length: 64 }).notNull(),
+    processedAt: timestamp("processedAt").defaultNow().notNull(),
+  },
+  table => ({
+    providerTransactionIdx: uniqueIndex(
+      "offerwall_provider_transaction_idx"
+    ).on(table.providerId, table.providerTransactionId),
+  })
+);
 
 export const withdrawals = mysqlTable("withdrawals", {
   id: int("id").autoincrement().primaryKey(),
@@ -163,6 +214,7 @@ export type Wallet = typeof wallets.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type OfferProvider = typeof offerProviders.$inferSelect;
+export type OfferwallPostback = typeof offerwallPostbacks.$inferSelect;
 export type Withdrawal = typeof withdrawals.$inferSelect;
 export type Referral = typeof referrals.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;

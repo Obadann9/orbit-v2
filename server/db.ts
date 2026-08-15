@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   auditEvents,
@@ -7,6 +7,7 @@ import {
   ledgerEntries,
   notifications,
   offerProviders,
+  offerwallPostbacks,
   referrals,
   taskClaims,
   tasks,
@@ -16,6 +17,12 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { publishToUser } from "./realtime";
+import type { OfferwallReward } from "./offerwall";
+import {
+  DAILY_WITHDRAWAL_LIMIT_POINTS,
+  MINIMUM_WITHDRAWAL_POINTS,
+  POINTS_PER_USD,
+} from "@shared/const";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -88,6 +95,29 @@ export async function ensureWallet(userId: number) {
     .where(eq(wallets.userId, userId))
     .limit(1);
   return result[0];
+}
+
+async function ensureWalletInTransaction(tx: any, userId: number) {
+  await tx
+    .insert(wallets)
+    .values({ userId })
+    .onDuplicateKeyUpdate({ set: { userId } });
+  const wallet = (
+    await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1)
+  )[0];
+  if (!wallet) throw new Error("Wallet unavailable");
+  return wallet;
+}
+
+function rowsChanged(result: unknown) {
+  return Number((result as any)?.[0]?.affectedRows ?? 0);
+}
+
+export function exceedsDailyWithdrawalLimit(
+  dailyTotal: number,
+  requestedAmount: number
+) {
+  return dailyTotal + requestedAmount > DAILY_WITHDRAWAL_LIMIT_POINTS;
 }
 
 export async function recordUserActivity(userId: number, action: string) {
@@ -469,101 +499,253 @@ export async function getProviders() {
     .orderBy(offerProviders.sortOrder);
 }
 
-export async function claimTask(userId: number, taskId: number) {
+export async function getOfferwallProviderByKey(providerKey: string) {
   const db = await getDb();
-  if (!db) return { ok: true, amount: taskId === 2 ? 1200 : 500, demo: true };
-  const today = new Date().toISOString().slice(0, 10);
-  const task = (
+  if (!db) return undefined;
+  return (
     await db
       .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.enabled, 1)))
-      .limit(1)
-  )[0];
-  if (!task) throw new Error("Task not found");
-  const already = (
-    await db
-      .select()
-      .from(taskClaims)
+      .from(offerProviders)
       .where(
         and(
-          eq(taskClaims.userId, userId),
-          eq(taskClaims.taskId, taskId),
-          eq(taskClaims.claimDate, today)
+          eq(offerProviders.providerKey, providerKey),
+          eq(offerProviders.enabled, 1)
         )
       )
       .limit(1)
   )[0];
-  if (already) throw new Error("Task already claimed today");
-  const wallet = await ensureWallet(userId);
-  const nextBalance = (wallet?.balance ?? 0) + task.reward;
-  await db.insert(taskClaims).values({ userId, taskId, claimDate: today });
-  await db
-    .update(wallets)
-    .set({
-      balance: nextBalance,
-      lifetimeEarned: (wallet?.lifetimeEarned ?? 0) + task.reward,
+}
+
+export async function getOfferwallProviderSettings() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: offerProviders.id,
+      name: offerProviders.name,
+      mark: offerProviders.mark,
+      enabled: offerProviders.enabled,
+      providerKey: offerProviders.providerKey,
+      secretEnvKey: offerProviders.secretEnvKey,
+      signatureMode: offerProviders.signatureMode,
+      signatureHeader: offerProviders.signatureHeader,
+      signatureField: offerProviders.signatureField,
+      transactionIdField: offerProviders.transactionIdField,
+      userIdField: offerProviders.userIdField,
+      amountField: offerProviders.amountField,
+      offerNameField: offerProviders.offerNameField,
+      allowedIps: offerProviders.allowedIps,
     })
-    .where(eq(wallets.userId, userId));
-  await db.insert(ledgerEntries).values({
-    userId,
-    kind: "earn",
-    amount: task.reward,
-    balanceAfter: nextBalance,
-    referenceType: "task",
-    referenceId: String(taskId),
-    description: task.title,
-    idempotencyKey: `task:${userId}:${taskId}:${today}`,
+    .from(offerProviders)
+    .orderBy(offerProviders.sortOrder);
+}
+
+export type OfferwallProviderSettingsInput = {
+  id?: number;
+  name: string;
+  mark: string;
+  wallUrl: string;
+  enabled: boolean;
+  sortOrder: number;
+  providerKey: string;
+  secretEnvKey: string;
+  signatureMode: "hmac_body" | "hmac_query";
+  signatureHeader: string;
+  signatureField: string;
+  transactionIdField: string;
+  userIdField: string;
+  amountField: string;
+  offerNameField: string;
+  allowedIps?: string;
+};
+
+export async function saveOfferwallProviderSettings(
+  input: OfferwallProviderSettingsInput
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const values = {
+    name: input.name.trim(),
+    mark: input.mark.trim(),
+    wallUrl: input.wallUrl.trim(),
+    enabled: input.enabled ? 1 : 0,
+    sortOrder: input.sortOrder,
+    providerKey: input.providerKey.trim().toLowerCase(),
+    secretEnvKey: input.secretEnvKey.trim(),
+    signatureMode: input.signatureMode,
+    signatureHeader: input.signatureHeader.trim(),
+    signatureField: input.signatureField.trim(),
+    transactionIdField: input.transactionIdField.trim(),
+    userIdField: input.userIdField.trim(),
+    amountField: input.amountField.trim(),
+    offerNameField: input.offerNameField.trim(),
+    allowedIps: input.allowedIps?.trim() || null,
+  } as const;
+  if (input.id) {
+    await db
+      .update(offerProviders)
+      .set(values)
+      .where(eq(offerProviders.id, input.id));
+    return { id: input.id };
+  }
+  const result = await db.insert(offerProviders).values(values);
+  return { id: Number(result[0].insertId) };
+}
+
+export async function processOfferwallReward(
+  providerId: number,
+  reward: OfferwallReward,
+  payloadHash: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  try {
+    const processed = await db.transaction(async tx => {
+      await tx.insert(offerwallPostbacks).values({
+        providerId,
+        providerTransactionId: reward.transactionId,
+        userId: reward.userId,
+        amount: reward.amount,
+        offerName: reward.offerName,
+        payloadHash,
+      });
+      await ensureWalletInTransaction(tx, reward.userId);
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${reward.amount}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${reward.amount}`,
+        })
+        .where(eq(wallets.userId, reward.userId));
+      const wallet = await ensureWalletInTransaction(tx, reward.userId);
+      await tx.insert(ledgerEntries).values({
+        userId: reward.userId,
+        kind: "earn",
+        amount: reward.amount,
+        balanceAfter: wallet.balance,
+        referenceType: "offerwall",
+        referenceId: reward.transactionId,
+        description: reward.offerName || "Offerwall reward",
+        idempotencyKey: `offerwall:${providerId}:${reward.transactionId}`,
+      });
+      await tx.insert(auditEvents).values({
+        actorUserId: null,
+        action: "offerwall.rewarded",
+        entityType: "offerwall_postback",
+        entityId: reward.transactionId,
+        metadata: JSON.stringify({
+          providerId,
+          userId: reward.userId,
+          amount: reward.amount,
+        }),
+      });
+      return { duplicate: false, balance: wallet.balance };
+    });
+    await emitNotification(
+      reward.userId,
+      "task",
+      "Offer reward received",
+      `+${reward.amount.toLocaleString()} points added${reward.offerName ? ` for ${reward.offerName}` : ""}`
+    );
+    return processed;
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY" || error?.cause?.code === "ER_DUP_ENTRY")
+      return { duplicate: true, balance: undefined };
+    throw error;
+  }
+}
+
+export async function claimTask(userId: number, taskId: number) {
+  const db = await getDb();
+  if (!db) return { ok: true, amount: taskId === 2 ? 1200 : 500, demo: true };
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await db.transaction(async tx => {
+    const task = (
+      await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.enabled, 1)))
+        .limit(1)
+    )[0];
+    if (!task) throw new Error("Task not found");
+    if (task.type !== "DAILY")
+      throw new Error("This reward requires verified completion");
+    await tx.insert(taskClaims).values({ userId, taskId, claimDate: today });
+    await ensureWalletInTransaction(tx, userId);
+    await tx
+      .update(wallets)
+      .set({
+        balance: sql`${wallets.balance} + ${task.reward}`,
+        lifetimeEarned: sql`${wallets.lifetimeEarned} + ${task.reward}`,
+      })
+      .where(eq(wallets.userId, userId));
+    const wallet = await ensureWalletInTransaction(tx, userId);
+    await tx.insert(ledgerEntries).values({
+      userId,
+      kind: "earn",
+      amount: task.reward,
+      balanceAfter: wallet.balance,
+      referenceType: "task",
+      referenceId: String(taskId),
+      description: task.title,
+      idempotencyKey: `task:${userId}:${taskId}:${today}`,
+    });
+    return { task, balance: wallet.balance };
   });
   await emitNotification(
     userId,
     "task",
     "Task complete",
-    `+${task.reward.toLocaleString()} points added for ${task.title}`
+    `+${result.task.reward.toLocaleString()} points added for ${result.task.title}`
   );
   await maybeAwardReferral(userId);
-  return { ok: true, amount: task.reward, balance: nextBalance };
+  return { ok: true, amount: result.task.reward, balance: result.balance };
 }
 
 export async function maybeAwardReferral(referredId: number) {
   const db = await getDb();
   if (!db) return;
-  const referral = (
-    await db
-      .select()
-      .from(referrals)
-      .where(
-        and(
-          eq(referrals.referredId, referredId),
-          eq(referrals.status, "pending")
+  await db.transaction(async tx => {
+    const referral = (
+      await tx
+        .select()
+        .from(referrals)
+        .where(
+          and(
+            eq(referrals.referredId, referredId),
+            eq(referrals.status, "pending")
+          )
         )
-      )
-      .limit(1)
-  )[0];
-  if (!referral) return;
-  const wallet = await ensureWallet(referral.referrerId);
-  const nextBalance = (wallet?.balance ?? 0) + referral.bonus;
-  await db
-    .update(wallets)
-    .set({
-      balance: nextBalance,
-      lifetimeEarned: (wallet?.lifetimeEarned ?? 0) + referral.bonus,
-    })
-    .where(eq(wallets.userId, referral.referrerId));
-  await db.insert(ledgerEntries).values({
-    userId: referral.referrerId,
-    kind: "earn",
-    amount: referral.bonus,
-    balanceAfter: nextBalance,
-    referenceType: "referral",
-    referenceId: String(referral.id),
-    description: "Referral bonus",
-    idempotencyKey: `referral:${referral.id}`,
+        .limit(1)
+    )[0];
+    if (!referral) return;
+    const award = await tx
+      .update(referrals)
+      .set({ status: "awarded", awardedAt: new Date() })
+      .where(
+        and(eq(referrals.id, referral.id), eq(referrals.status, "pending"))
+      );
+    if (rowsChanged(award) !== 1) return;
+    await ensureWalletInTransaction(tx, referral.referrerId);
+    await tx
+      .update(wallets)
+      .set({
+        balance: sql`${wallets.balance} + ${referral.bonus}`,
+        lifetimeEarned: sql`${wallets.lifetimeEarned} + ${referral.bonus}`,
+      })
+      .where(eq(wallets.userId, referral.referrerId));
+    const wallet = await ensureWalletInTransaction(tx, referral.referrerId);
+    await tx.insert(ledgerEntries).values({
+      userId: referral.referrerId,
+      kind: "earn",
+      amount: referral.bonus,
+      balanceAfter: wallet.balance,
+      referenceType: "referral",
+      referenceId: String(referral.id),
+      description: "Referral bonus",
+      idempotencyKey: `referral:${referral.id}`,
+    });
   });
-  await db
-    .update(referrals)
-    .set({ status: "awarded", awardedAt: new Date() })
-    .where(eq(referrals.id, referral.id));
 }
 
 export async function createWithdrawal(
@@ -571,41 +753,75 @@ export async function createWithdrawal(
   amount: number,
   destination: string
 ) {
-  if (amount < 5000) throw new Error("Minimum withdrawal is $5.00");
+  if (!Number.isInteger(amount) || amount < MINIMUM_WITHDRAWAL_POINTS)
+    throw new Error("Minimum withdrawal is $5.00");
   const db = await getDb();
   if (!db) return { id: 0, status: "pending", amount };
-  const wallet = await ensureWallet(userId);
-  if (!wallet || wallet.balance < amount)
-    throw new Error("Insufficient balance");
-  const nextBalance = wallet.balance - amount;
-  await db
-    .update(wallets)
-    .set({ balance: nextBalance })
-    .where(eq(wallets.userId, userId));
-  const result = await db.insert(withdrawals).values({
-    userId,
-    amount,
-    method: "PayPal",
-    destination,
-    status: "pending",
-  });
-  const withdrawalId = Number(result[0].insertId);
-  await db.insert(auditEvents).values({
-    actorUserId: userId,
-    action: "withdrawal.created",
-    entityType: "withdrawal",
-    entityId: String(withdrawalId),
-    metadata: JSON.stringify({ amount, method: "PayPal" }),
-  });
-  await db.insert(ledgerEntries).values({
-    userId,
-    kind: "withdrawal_hold",
-    amount: -amount,
-    balanceAfter: nextBalance,
-    referenceType: "withdrawal",
-    referenceId: String(withdrawalId),
-    description: "Cash-out held for review",
-    idempotencyKey: `withdrawal:${withdrawalId}`,
+  const created = await db.transaction(async tx => {
+    await tx
+      .insert(wallets)
+      .values({ userId })
+      .onDuplicateKeyUpdate({ set: { userId } });
+    const wallet = (
+      await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+    )[0];
+    if (!wallet) throw new Error("Wallet unavailable");
+    const now = new Date();
+    const dayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    );
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const daily = await tx
+      .select({ total: sql<number>`coalesce(sum(${withdrawals.amount}), 0)` })
+      .from(withdrawals)
+      .where(
+        and(
+          eq(withdrawals.userId, userId),
+          inArray(withdrawals.status, ["pending", "approved", "paid"]),
+          gte(withdrawals.createdAt, dayStart),
+          lt(withdrawals.createdAt, dayEnd)
+        )
+      );
+    if (exceedsDailyWithdrawalLimit(Number(daily[0]?.total ?? 0), amount))
+      throw new Error("Daily withdrawal limit is $50.00");
+    const debit = await tx
+      .update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${amount}` })
+      .where(
+        and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`)
+      );
+    if (rowsChanged(debit) !== 1) throw new Error("Insufficient balance");
+    const nextBalance = wallet.balance - amount;
+    const result = await tx.insert(withdrawals).values({
+      userId,
+      amount,
+      method: "PayPal",
+      destination,
+      status: "pending",
+    });
+    const withdrawalId = Number(result[0].insertId);
+    await tx.insert(auditEvents).values({
+      actorUserId: userId,
+      action: "withdrawal.created",
+      entityType: "withdrawal",
+      entityId: String(withdrawalId),
+      metadata: JSON.stringify({ amount, method: "PayPal" }),
+    });
+    await tx.insert(ledgerEntries).values({
+      userId,
+      kind: "withdrawal_hold",
+      amount: -amount,
+      balanceAfter: wallet.balance,
+      referenceType: "withdrawal",
+      referenceId: String(withdrawalId),
+      description: "Cash-out held for review",
+      idempotencyKey: `withdrawal:${withdrawalId}`,
+    });
+    return { id: withdrawalId, status: "pending" as const, amount };
   });
   await emitNotification(
     userId,
@@ -613,7 +829,7 @@ export async function createWithdrawal(
     "Cash-out submitted",
     `Your ${moneyLabel(amount)} request is now under review.`
   );
-  return { id: withdrawalId, status: "pending", amount };
+  return created;
 }
 
 export function canViewWithdrawal(
@@ -711,7 +927,8 @@ export async function getWithdrawalDetails(
   return { withdrawal, audit: sortWithdrawalAudit(audit) };
 }
 
-const moneyLabel = (points: number) => `$${(points / 1000).toFixed(2)}`;
+const moneyLabel = (points: number) =>
+  `$${(points / POINTS_PER_USD).toFixed(2)}`;
 
 export async function getNotificationPreferences(userId: number) {
   const db = await getDb();
@@ -963,18 +1180,69 @@ export async function reviewWithdrawal(
 ) {
   const db = await getDb();
   if (!db) return { ok: true };
-  const item = (
-    await db.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1)
-  )[0];
-  if (
-    !item ||
-    (status === "paid" ? item.status !== "approved" : item.status !== "pending")
-  )
-    throw new Error("Withdrawal is no longer eligible");
-  await db
-    .update(withdrawals)
-    .set({ status, reviewedBy: adminId, reviewedAt: new Date() })
-    .where(eq(withdrawals.id, id));
+  const item = await db.transaction(async tx => {
+    const current = (
+      await tx.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1)
+    )[0];
+    const requiredStatus = status === "paid" ? "approved" : "pending";
+    if (!current || current.status !== requiredStatus)
+      throw new Error("Withdrawal is no longer eligible");
+    const transition = await tx
+      .update(withdrawals)
+      .set({ status, reviewedBy: adminId, reviewedAt: new Date() })
+      .where(
+        and(eq(withdrawals.id, id), eq(withdrawals.status, requiredStatus))
+      );
+    if (rowsChanged(transition) !== 1)
+      throw new Error("Withdrawal is no longer eligible");
+    const wallet = await ensureWalletInTransaction(tx, current.userId);
+    if (status === "paid") {
+      await tx
+        .update(wallets)
+        .set({
+          lifetimeWithdrawn: sql`${wallets.lifetimeWithdrawn} + ${current.amount}`,
+        })
+        .where(eq(wallets.userId, current.userId));
+      await tx.insert(ledgerEntries).values({
+        userId: current.userId,
+        kind: "withdrawal_paid",
+        amount: 0,
+        balanceAfter: wallet.balance,
+        referenceType: "withdrawal",
+        referenceId: String(id),
+        description: "Withdrawal paid",
+        idempotencyKey: `withdrawal-paid:${id}`,
+      });
+    }
+    if (status === "rejected") {
+      await tx
+        .update(wallets)
+        .set({ balance: sql`${wallets.balance} + ${current.amount}` })
+        .where(eq(wallets.userId, current.userId));
+      const releasedWallet = await ensureWalletInTransaction(
+        tx,
+        current.userId
+      );
+      await tx.insert(ledgerEntries).values({
+        userId: current.userId,
+        kind: "withdrawal_release",
+        amount: current.amount,
+        balanceAfter: releasedWallet.balance,
+        referenceType: "withdrawal",
+        referenceId: String(id),
+        description: "Withdrawal released",
+        idempotencyKey: `withdrawal-release:${id}`,
+      });
+    }
+    await tx.insert(auditEvents).values({
+      actorUserId: adminId,
+      action: `withdrawal.${status}`,
+      entityType: "withdrawal",
+      entityId: String(id),
+      metadata: JSON.stringify({ amount: current.amount }),
+    });
+    return current;
+  });
   await emitNotification(
     item.userId,
     "withdrawal",
@@ -989,50 +1257,6 @@ export async function reviewWithdrawal(
         ? `Your ${moneyLabel(item.amount)} request was approved.`
         : `Your ${moneyLabel(item.amount)} request was returned to your balance.`
   );
-  await db.insert(auditEvents).values({
-    actorUserId: adminId,
-    action: `withdrawal.${status}`,
-    entityType: "withdrawal",
-    entityId: String(id),
-    metadata: JSON.stringify({ amount: item.amount }),
-  });
-  if (status === "paid") {
-    const wallet = await ensureWallet(item.userId);
-    const paidBalance = wallet?.balance ?? 0;
-    await db
-      .update(wallets)
-      .set({
-        lifetimeWithdrawn: (wallet?.lifetimeWithdrawn ?? 0) + item.amount,
-      })
-      .where(eq(wallets.userId, item.userId));
-    await db.insert(ledgerEntries).values({
-      userId: item.userId,
-      kind: "withdrawal_paid",
-      amount: 0,
-      balanceAfter: paidBalance,
-      referenceType: "withdrawal",
-      referenceId: String(id),
-      description: "Withdrawal paid",
-      idempotencyKey: `withdrawal-paid:${id}`,
-    });
-  }
-  if (status === "rejected") {
-    const wallet = await ensureWallet(item.userId);
-    const nextBalance = (wallet?.balance ?? 0) + item.amount;
-    await db
-      .update(wallets)
-      .set({ balance: nextBalance })
-      .where(eq(wallets.userId, item.userId));
-    await db.insert(ledgerEntries).values({
-      userId: item.userId,
-      kind: "withdrawal_release",
-      amount: item.amount,
-      balanceAfter: nextBalance,
-      referenceType: "withdrawal",
-      referenceId: String(id),
-      description: "Withdrawal released",
-    });
-  }
   return { ok: true };
 }
 
@@ -1041,33 +1265,37 @@ export async function spendPoints(
   amount: number,
   description: string
 ) {
-  if (amount <= 0) throw new Error("Amount must be positive");
+  if (!Number.isInteger(amount) || amount <= 0)
+    throw new Error("Amount must be positive");
   const db = await getDb();
   if (!db) throw new Error("Database unavailable; points were not changed");
-  const wallet = await ensureWallet(userId);
-  if (!wallet || wallet.balance < amount)
-    throw new Error("Insufficient balance");
-  const nextBalance = wallet.balance - amount;
-  await db
-    .update(wallets)
-    .set({ balance: nextBalance })
-    .where(eq(wallets.userId, userId));
-  await db.insert(ledgerEntries).values({
-    userId,
-    kind: "spend",
-    amount: -amount,
-    balanceAfter: nextBalance,
-    description,
-    referenceType: "spend",
+  return db.transaction(async tx => {
+    await ensureWalletInTransaction(tx, userId);
+    const debit = await tx
+      .update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${amount}` })
+      .where(
+        and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`)
+      );
+    if (rowsChanged(debit) !== 1) throw new Error("Insufficient balance");
+    const wallet = await ensureWalletInTransaction(tx, userId);
+    await tx.insert(ledgerEntries).values({
+      userId,
+      kind: "spend",
+      amount: -amount,
+      balanceAfter: wallet.balance,
+      description,
+      referenceType: "spend",
+    });
+    await tx.insert(auditEvents).values({
+      actorUserId: userId,
+      action: "points.spend",
+      entityType: "wallet",
+      entityId: String(userId),
+      metadata: JSON.stringify({ amount, description }),
+    });
+    return { ok: true, balance: wallet.balance };
   });
-  await db.insert(auditEvents).values({
-    actorUserId: userId,
-    action: "points.spend",
-    entityType: "wallet",
-    entityId: String(userId),
-    metadata: JSON.stringify({ amount, description }),
-  });
-  return { ok: true, balance: nextBalance };
 }
 
 export async function transferPoints(
@@ -1075,52 +1303,12 @@ export async function transferPoints(
   recipientId: number,
   amount: number
 ) {
-  if (amount <= 0 || recipientId === userId)
-    throw new Error("Invalid transfer");
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable; points were not changed");
-  const sender = await ensureWallet(userId);
-  const recipient = await ensureWallet(recipientId);
-  if (!sender || sender.balance < amount || !recipient)
-    throw new Error("Insufficient balance or recipient not found");
-  const senderBalance = sender.balance - amount;
-  const recipientBalance = recipient.balance + amount;
-  await db
-    .update(wallets)
-    .set({ balance: senderBalance })
-    .where(eq(wallets.userId, userId));
-  await db
-    .update(wallets)
-    .set({ balance: recipientBalance })
-    .where(eq(wallets.userId, recipientId));
-  await db.insert(ledgerEntries).values([
-    {
-      userId,
-      kind: "transfer_out",
-      amount: -amount,
-      balanceAfter: senderBalance,
-      referenceType: "transfer",
-      referenceId: String(recipientId),
-      description: "Points transfer",
-    },
-    {
-      userId: recipientId,
-      kind: "transfer_in",
-      amount,
-      balanceAfter: recipientBalance,
-      referenceType: "transfer",
-      referenceId: String(userId),
-      description: "Points received",
-    },
-  ]);
-  await db.insert(auditEvents).values({
-    actorUserId: userId,
-    action: "points.transfer",
-    entityType: "wallet",
-    entityId: String(recipientId),
-    metadata: JSON.stringify({ amount }),
-  });
-  return { ok: true, balance: senderBalance };
+  void userId;
+  void recipientId;
+  void amount;
+  throw new Error(
+    "Point transfers are temporarily disabled for fraud prevention"
+  );
 }
 
 export async function getReferral(userId: number) {

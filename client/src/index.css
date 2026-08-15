@@ -1715,6 +1715,48 @@ h2 {
   border-color: rgba(157, 125, 255, 0.28);
   background: rgba(157, 125, 255, 0.08);
 }
+.offerwall-settings {
+  display: grid;
+  gap: 1rem;
+}
+.postback-base-url {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: auto;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  color: var(--muted);
+  background: var(--panel-2);
+}
+.postback-base-url code {
+  font-family: "Space Mono", monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.offerwall-provider-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding-top: 0.4rem;
+}
+.offerwall-provider-form .field-label:nth-of-type(3),
+.offerwall-provider-form .field-label:nth-of-type(4),
+.offerwall-provider-form .field-label:nth-of-type(5) {
+  grid-column: 1 / -1;
+}
+.offerwall-provider-form button {
+  justify-self: start;
+}
+.secret-env-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-family: "Space Mono", monospace;
+  font-size: 0.7rem;
+}
 @keyframes policyEnter {
   from {
     opacity: 0;
@@ -1746,6 +1788,9 @@ h2 {
   }
   .policy-sheet {
     padding: 16px;
+  }
+  .offerwall-provider-form {
+    grid-template-columns: 1fr;
   }
 }
 
