@@ -6,6 +6,15 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover"
     />
+    <script>
+      try {
+        if (localStorage.getItem("orbit-theme") !== "light") {
+          document.documentElement.classList.add("dark");
+        }
+      } catch {
+        document.documentElement.classList.add("dark");
+      }
+    </script>
     <meta name="theme-color" content="#08080F" />
     <meta
       name="description"

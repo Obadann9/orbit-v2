@@ -14,6 +14,10 @@
   --lime-ink: #0b1400;
   --indigo: #6c5ce7;
   --amber: #f3bd58;
+  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-tick: #77758f;
+  --chart-tooltip-bg: #17152b;
+  --chart-tooltip-border: rgba(255, 255, 255, 0.14);
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
 * {
@@ -1743,4 +1747,72 @@ h2 {
   .policy-sheet {
     padding: 16px;
   }
+}
+
+html:not(.dark) {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --panel-2: #edf0f7;
+  --ink: #17172a;
+  --muted: #61667a;
+  --dim: #7b8195;
+  --line: rgba(32, 36, 61, 0.15);
+  --lime: #84ad12;
+  --lime-ink: #101804;
+  --indigo: #5d4bc7;
+  --amber: #a76c00;
+  --chart-grid: rgba(32, 36, 61, 0.12);
+  --chart-tick: #73798c;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: rgba(32, 36, 61, 0.18);
+}
+html:not(.dark) .app-shell {
+  background:
+    radial-gradient(
+      circle at 85% 4%,
+      rgba(108, 92, 231, 0.11),
+      transparent 28rem
+    ),
+    radial-gradient(
+      circle at 12% 60%,
+      rgba(132, 173, 18, 0.08),
+      transparent 24rem
+    ),
+    var(--bg);
+}
+html:not(.dark) .top-header,
+html:not(.dark) .bottom-nav {
+  background: rgba(255, 255, 255, 0.84);
+}
+html:not(.dark) .notification-popover,
+html:not(.dark) .offer-sheet,
+html:not(.dark) .cashout-modal,
+html:not(.dark) .policy-sheet,
+html:not(.dark) .chart-card,
+html:not(.dark) .audit-card,
+html:not(.dark) .kyc-status-card,
+html:not(.dark) .kyc-admin-panel,
+html:not(.dark) .notification-settings,
+html:not(.dark) .referral-card {
+  background: var(--panel);
+  box-shadow: 0 18px 44px rgba(42, 48, 78, 0.1);
+}
+html:not(.dark) .provider-card,
+html:not(.dark) .detail-hero {
+  background: linear-gradient(145deg, var(--panel), var(--panel-2));
+}
+html:not(.dark) .stats-row div,
+html:not(.dark) .admin-kpis div,
+html:not(.dark) .detail-meta-grid div {
+  background: var(--panel);
+}
+html:not(.dark) .toggle {
+  background: #d8dce8;
+}
+html:not(.dark) .audit-marker {
+  background: var(--panel);
+}
+html:not(.dark) .modal-backdrop,
+html:not(.dark) .sheet-backdrop {
+  background: rgba(24, 28, 45, 0.25);
 }

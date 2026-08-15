@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "light" | "dark";
+export type Theme = "light" | "dark";
+export const THEME_STORAGE_KEY = "orbit-theme";
 
 interface ThemeContextType {
   theme: Theme;
@@ -23,22 +24,27 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     if (switchable) {
-      const stored = localStorage.getItem("theme");
-      return (stored as Theme) || defaultTheme;
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      return stored === "light" || stored === "dark" ? stored : defaultTheme;
     }
     return defaultTheme;
   });
 
   useEffect(() => {
     const root = document.documentElement;
+    const themeColor = document.querySelector('meta[name="theme-color"]');
     if (theme === "dark") {
       root.classList.add("dark");
     } else {
       root.classList.remove("dark");
     }
+    themeColor?.setAttribute(
+      "content",
+      theme === "dark" ? "#08080F" : "#F4F6FB"
+    );
 
     if (switchable) {
-      localStorage.setItem("theme", theme);
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
     }
   }, [theme, switchable]);
 

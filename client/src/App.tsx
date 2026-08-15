@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider } from "./contexts/ThemeContext";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
 import { startLogin } from "./const";
 import { trpc } from "./lib/trpc";
@@ -31,8 +31,10 @@ import {
   Fingerprint,
   LogOut,
   Menu,
+  Moon,
   ShieldCheck,
   Sparkles,
+  Sun,
   WalletCards,
   X,
 } from "lucide-react";
@@ -127,6 +129,13 @@ const dateLabel = (date: Date | string) =>
     month: "short",
     day: "numeric",
   });
+export const CHART_TOOLTIP_STYLE = {
+  background: "var(--chart-tooltip-bg)",
+  border: "1px solid var(--chart-tooltip-border)",
+  borderRadius: 8,
+  color: "var(--ink)",
+};
+export const CHART_TOOLTIP_PROPS = { contentStyle: CHART_TOOLTIP_STYLE };
 
 function Welcome({ onLogin }: { onLogin: () => void }) {
   return (
@@ -173,6 +182,39 @@ function BalanceOrbit({ balance }: { balance: number }) {
         <strong>{balance.toLocaleString()}</strong>
         <span>POINTS</span>
       </div>
+    </div>
+  );
+}
+
+export function NotificationPopover({
+  notifications,
+  onRead,
+}: {
+  notifications: any[];
+  onRead: (id: number) => void;
+}) {
+  return (
+    <div className="notification-popover">
+      <div className="notification-popover-head">
+        <span className="eyebrow">INBOX</span>
+        <strong>Notifications</strong>
+      </div>
+      {notifications.map((item: any) => (
+        <button
+          className={`notification-item ${item.readAt ? "read" : ""}`}
+          key={item.id}
+          onClick={() => !item.readAt && onRead(item.id)}
+        >
+          <span className={`notification-dot ${item.type}`} />
+          <span>
+            <strong>{item.title}</strong>
+            <small>{item.body}</small>
+          </span>
+        </button>
+      ))}
+      {!notifications.length && (
+        <p className="notification-empty">You are all caught up.</p>
+      )}
     </div>
   );
 }
@@ -225,34 +267,22 @@ function NotificationCenter() {
         {unread > 0 && <span>{unread > 9 ? "9+" : unread}</span>}
       </button>
       {open && (
-        <div className="notification-popover">
-          <div className="notification-popover-head">
-            <span className="eyebrow">INBOX</span>
-            <strong>Notifications</strong>
-          </div>
-          {(notifications.data || []).map((item: any) => (
-            <button
-              className={`notification-item ${item.readAt ? "read" : ""}`}
-              key={item.id}
-              onClick={() => !item.readAt && markRead.mutate({ id: item.id })}
-            >
-              <span className={`notification-dot ${item.type}`} />
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.body}</small>
-              </span>
-            </button>
-          ))}
-          {!notifications.data?.length && (
-            <p className="notification-empty">You are all caught up.</p>
-          )}
-        </div>
+        <NotificationPopover
+          notifications={notifications.data || []}
+          onRead={id => markRead.mutate({ id })}
+        />
       )}
     </div>
   );
 }
 
-function OfferSheet({ provider, close }: { provider: any; close: () => void }) {
+export function OfferSheet({
+  provider,
+  close,
+}: {
+  provider: any;
+  close: () => void;
+}) {
   const [frameState, setFrameState] = useState<"loading" | "ready" | "error">(
     "loading"
   );
@@ -504,7 +534,7 @@ function Wallet({
   );
 }
 
-function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
+export function CashOut({ wallet, close }: { wallet: any; close: () => void }) {
   const [amount, setAmount] = useState(5000);
   const [email, setEmail] = useState("");
   const orbitUtils = trpc.useUtils();
@@ -664,6 +694,30 @@ function NotificationSettings() {
         </button>
       ))}
     </section>
+  );
+}
+
+export function ThemeModeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === "dark";
+  return (
+    <button
+      className="settings-row theme-mode-toggle"
+      role="switch"
+      aria-checked={isDark}
+      onClick={toggleTheme}
+    >
+      {isDark ? <Moon size={17} /> : <Sun size={17} />}
+      <span>
+        Dark mode
+        <small>
+          {isDark ? "Deep-space theme enabled" : "Use the light appearance"}
+        </small>
+      </span>
+      <span className={`toggle ${isDark ? "on" : ""}`} aria-hidden="true">
+        <i />
+      </span>
+    </button>
   );
 }
 
@@ -903,6 +957,7 @@ function Me({
           </span>
           <ChevronRight size={16} />
         </button>
+        <ThemeModeToggle />
         <PolicyAccess />
         {isAdmin && (
           <button className="settings-row admin-row" onClick={onAdmin}>
@@ -1081,30 +1136,26 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
                     >
                       <stop
                         offset="0%"
-                        stopColor="#c8ff42"
+                        stopColor="var(--lime)"
                         stopOpacity={0.35}
                       />
-                      <stop offset="100%" stopColor="#c8ff42" stopOpacity={0} />
+                      <stop
+                        offset="100%"
+                        stopColor="var(--lime)"
+                        stopOpacity={0}
+                      />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid
-                    stroke="rgba(255,255,255,0.08)"
-                    vertical={false}
-                  />
+                  <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fill: "#77758f", fontSize: 10 }}
+                    tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis hide />
                   <Tooltip
-                    contentStyle={{
-                      background: "#17152b",
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      borderRadius: 8,
-                      color: "#fff",
-                    }}
+                    {...CHART_TOOLTIP_PROPS}
                     formatter={(value: number) => [
                       `${value.toLocaleString()} pts`,
                       "Volume",
@@ -1113,7 +1164,7 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
                   <Area
                     type="monotone"
                     dataKey="withdrawals"
-                    stroke="#c8ff42"
+                    stroke="var(--lime)"
                     fill="url(#withdrawalGradient)"
                     strokeWidth={2}
                   />
@@ -1126,27 +1177,23 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
             <div className="chart-frame">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={trends.data || []}>
-                  <CartesianGrid
-                    stroke="rgba(255,255,255,0.08)"
-                    vertical={false}
-                  />
+                  <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fill: "#77758f", fontSize: 10 }}
+                    tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis hide />
                   <Tooltip
-                    contentStyle={{
-                      background: "#17152b",
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      borderRadius: 8,
-                      color: "#fff",
-                    }}
+                    {...CHART_TOOLTIP_PROPS}
                     formatter={(value: number) => [value, "Users"]}
                   />
-                  <Bar dataKey="users" fill="#9d7dff" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="users"
+                    fill="var(--indigo)"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -1610,7 +1657,7 @@ export default function App() {
   }, []);
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="dark" switchable>
         <TooltipProvider>
           <Toaster />
           <AppShell />
