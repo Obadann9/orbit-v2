@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   auditEvents,
   InsertUser,
+  kycRequests,
   ledgerEntries,
   notifications,
   offerProviders,
@@ -104,6 +105,148 @@ export async function recordUserActivity(userId: number, action: string) {
 export async function getWallet(userId: number) {
   await recordUserActivity(userId, "wallet_view");
   return ensureWallet(userId);
+}
+
+export async function getKycStatus(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (
+    await db
+      .select()
+      .from(kycRequests)
+      .where(eq(kycRequests.userId, userId))
+      .orderBy(desc(kycRequests.requestedAt))
+      .limit(1)
+  )[0];
+}
+
+export async function requestKyc(
+  adminId: number,
+  userId: number,
+  reason?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const active = (
+    await db
+      .select()
+      .from(kycRequests)
+      .where(eq(kycRequests.userId, userId))
+      .orderBy(desc(kycRequests.requestedAt))
+      .limit(1)
+  )[0];
+  if (
+    active &&
+    ["requested", "submitted", "under_review"].includes(active.status)
+  )
+    throw new Error("An active KYC request already exists");
+  const result = await db.insert(kycRequests).values({
+    userId,
+    requestedBy: adminId,
+    reason: reason?.trim() || null,
+    status: "requested",
+  });
+  const id = Number(result[0].insertId);
+  await db.insert(auditEvents).values({
+    actorUserId: adminId,
+    action: "kyc.requested",
+    entityType: "kyc_request",
+    entityId: String(id),
+    metadata: JSON.stringify({ userId, reason: reason?.trim() || null }),
+  });
+  await emitNotification(
+    userId,
+    "system",
+    "Identity verification requested",
+    "An administrator requested KYC before certain account actions."
+  );
+  return { id, status: "requested" as const };
+}
+
+export async function submitKyc(userId: number, id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const request = (
+    await db
+      .select()
+      .from(kycRequests)
+      .where(and(eq(kycRequests.id, id), eq(kycRequests.userId, userId)))
+      .limit(1)
+  )[0];
+  if (!request || request.status !== "requested")
+    throw new Error("KYC request is not ready for submission");
+  await db
+    .update(kycRequests)
+    .set({ status: "submitted", submittedAt: new Date() })
+    .where(eq(kycRequests.id, id));
+  await db.insert(auditEvents).values({
+    actorUserId: userId,
+    action: "kyc.submitted",
+    entityType: "kyc_request",
+    entityId: String(id),
+  });
+  return { ok: true, status: "submitted" as const };
+}
+
+export async function getKycRequests(
+  status?: "requested" | "submitted" | "under_review" | "approved" | "rejected"
+) {
+  const db = await getDb();
+  if (!db) return [];
+  const query = db.select().from(kycRequests);
+  return status
+    ? query
+        .where(eq(kycRequests.status, status))
+        .orderBy(desc(kycRequests.requestedAt))
+    : query.orderBy(desc(kycRequests.requestedAt));
+}
+
+export async function reviewKyc(
+  adminId: number,
+  id: number,
+  status: "under_review" | "approved" | "rejected",
+  reviewerNote?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const request = (
+    await db.select().from(kycRequests).where(eq(kycRequests.id, id)).limit(1)
+  )[0];
+  const validTransition =
+    (status === "under_review" && request?.status === "submitted") ||
+    (["approved", "rejected"].includes(status) &&
+      request?.status === "under_review");
+  if (!validTransition) throw new Error("KYC request is not ready for review");
+  await db
+    .update(kycRequests)
+    .set({
+      status,
+      reviewerNote: reviewerNote?.trim() || null,
+      reviewedAt: new Date(),
+      reviewedBy: adminId,
+    })
+    .where(eq(kycRequests.id, id));
+  await db.insert(auditEvents).values({
+    actorUserId: adminId,
+    action: `kyc.${status}`,
+    entityType: "kyc_request",
+    entityId: String(id),
+    metadata: JSON.stringify({ reviewerNote: reviewerNote?.trim() || null }),
+  });
+  if (status === "approved" || status === "rejected") {
+    await emitNotification(
+      request.userId,
+      "system",
+      status === "approved"
+        ? "Identity verification approved"
+        : "Identity verification needs attention",
+      status === "approved"
+        ? "Your KYC review is complete."
+        : reviewerNote?.trim() ||
+            "Please contact support regarding your KYC request."
+    );
+  }
+  return { ok: true, status };
 }
 
 export async function getLedger(userId: number) {

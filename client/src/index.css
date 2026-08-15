@@ -1484,3 +1484,263 @@ h2 {
     margin: 0;
   }
 }
+
+.kyc-status-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 13px;
+  margin: 22px 0 4px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(157, 125, 255, 0.28);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 92% 5%,
+      rgba(157, 125, 255, 0.16),
+      transparent 8rem
+    ),
+    rgba(23, 21, 43, 0.82);
+}
+.kyc-status-card::after {
+  position: absolute;
+  right: -22px;
+  bottom: -25px;
+  width: 105px;
+  height: 45px;
+  content: "";
+  border: 1px solid rgba(157, 125, 255, 0.2);
+  border-radius: 50%;
+  transform: rotate(-24deg);
+}
+.kyc-status-card.approved {
+  border-color: rgba(200, 255, 66, 0.35);
+}
+.kyc-status-card.rejected {
+  border-color: rgba(255, 142, 168, 0.35);
+}
+.kyc-status-card.is-loading {
+  border-color: rgba(157, 125, 255, 0.24);
+}
+.kyc-status-card.is-loading .kyc-status-icon {
+  animation: kycScan 1.2s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+}
+.kyc-status-card.is-error {
+  border-color: rgba(255, 142, 168, 0.35);
+}
+.kyc-status-card.is-error .kyc-status-icon {
+  color: #ffabc0;
+  border-color: rgba(255, 142, 168, 0.35);
+  background: rgba(255, 142, 168, 0.09);
+}
+.kyc-status-icon {
+  display: grid;
+  place-items: center;
+  width: 41px;
+  height: 41px;
+  border: 1px solid rgba(157, 125, 255, 0.35);
+  border-radius: 11px;
+  color: #b9a6ff;
+  background: rgba(157, 125, 255, 0.11);
+}
+.kyc-status-copy {
+  min-width: 0;
+}
+.kyc-status-copy h2 {
+  margin: 4px 0 6px;
+  font-size: 16px;
+}
+.kyc-status-copy p,
+.kyc-status-copy .kyc-note {
+  display: block;
+  max-width: 480px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.kyc-status-copy .kyc-note {
+  margin-top: 8px;
+  color: #d8d2ef;
+  font:
+    9px "Space Mono",
+    monospace;
+}
+.kyc-submit {
+  min-height: 34px;
+  margin-top: 12px;
+  padding: 0 12px;
+  font-size: 10px;
+}
+.kyc-retry {
+  margin-top: 8px;
+}
+.kyc-pill {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  color: var(--dim);
+  font:
+    8px "Space Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.kyc-pill.requested {
+  color: var(--amber);
+  border-color: rgba(243, 213, 123, 0.32);
+}
+.kyc-pill.submitted,
+.kyc-pill.under-review {
+  color: #b9a6ff;
+  border-color: rgba(157, 125, 255, 0.35);
+}
+.kyc-pill.approved,
+.kyc-state-approved {
+  color: var(--lime);
+}
+.kyc-pill.rejected,
+.kyc-state-rejected {
+  color: #ff8ea8;
+}
+.policy-backdrop {
+  padding: 18px;
+}
+.policy-sheet {
+  width: min(100%, 620px);
+  max-height: min(760px, 90vh);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid rgba(157, 125, 255, 0.32);
+  border-radius: 18px;
+  background: linear-gradient(155deg, #211c3c, #100f20 70%);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
+  animation: policyEnter 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.policy-content {
+  display: grid;
+  gap: 17px;
+  margin-top: 18px;
+}
+.policy-content section {
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--line);
+}
+.policy-content section:last-child {
+  padding-bottom: 0;
+  border: 0;
+}
+.policy-content h3 {
+  margin: 0 0 6px;
+  color: var(--lime);
+  font-size: 13px;
+}
+.policy-content p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.policy-intro {
+  padding: 12px;
+  border: 1px solid rgba(157, 125, 255, 0.25);
+  border-radius: 10px;
+  color: #d8d2ef !important;
+  background: rgba(157, 125, 255, 0.08);
+}
+.kyc-admin-panel {
+  padding: 16px;
+  border: 1px solid rgba(157, 125, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(17, 16, 35, 0.55);
+}
+.kyc-admin-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+.kyc-admin-toolbar p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.kyc-admin-toolbar select {
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  background: var(--panel);
+  font:
+    9px "Space Mono",
+    monospace;
+}
+.kyc-admin-row small + small {
+  color: #d8d2ef;
+}
+.kyc-list-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  color: #ffabc0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.kyc-list-error p {
+  margin: 0;
+}
+.kyc-state-requested {
+  color: var(--amber);
+}
+.kyc-state-submitted,
+.kyc-state-under_review {
+  color: #b9a6ff;
+}
+.kyc-request-action {
+  color: #b9a6ff;
+  border-color: rgba(157, 125, 255, 0.28);
+  background: rgba(157, 125, 255, 0.08);
+}
+@keyframes policyEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes kycScan {
+  from {
+    box-shadow: 0 0 0 rgba(157, 125, 255, 0);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(157, 125, 255, 0.36);
+  }
+}
+@media (max-width: 520px) {
+  .kyc-status-card {
+    padding-top: 43px;
+  }
+  .kyc-admin-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .kyc-admin-toolbar select {
+    width: 100%;
+  }
+  .policy-sheet {
+    padding: 16px;
+  }
+}

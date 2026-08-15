@@ -136,6 +136,27 @@ export const auditEvents = mysqlTable("auditEvents", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const kycRequests = mysqlTable("kycRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  requestedBy: int("requestedBy").notNull(),
+  status: mysqlEnum("status", [
+    "requested",
+    "submitted",
+    "under_review",
+    "approved",
+    "rejected",
+  ])
+    .default("requested")
+    .notNull(),
+  reason: varchar("reason", { length: 255 }),
+  reviewerNote: varchar("reviewerNote", { length: 500 }),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+  submittedAt: timestamp("submittedAt"),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewedBy: int("reviewedBy"),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Wallet = typeof wallets.$inferSelect;
@@ -145,6 +166,7 @@ export type OfferProvider = typeof offerProviders.$inferSelect;
 export type Withdrawal = typeof withdrawals.$inferSelect;
 export type Referral = typeof referrals.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+export type KycRequest = typeof kycRequests.$inferSelect;
 
 export const notifications = mysqlTable("notifications", {
   id: int("id").autoincrement().primaryKey(),

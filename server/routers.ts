@@ -16,6 +16,8 @@ import {
   getAdminStats,
   getAdminTrends,
   getAdminUsers,
+  getKycRequests,
+  getKycStatus,
   getLedger,
   getNotificationPreferences,
   getNotifications,
@@ -28,6 +30,9 @@ import {
   getWithdrawals,
   markNotificationRead,
   reviewWithdrawal,
+  requestKyc,
+  reviewKyc,
+  submitKyc,
   updateNotificationPreferences,
   setUserRole,
   spendPoints,
@@ -48,6 +53,10 @@ export const appRouter = router({
   }),
   orbit: router({
     wallet: protectedProcedure.query(({ ctx }) => getWallet(ctx.user.id)),
+    kycStatus: protectedProcedure.query(({ ctx }) => getKycStatus(ctx.user.id)),
+    submitKyc: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => submitKyc(ctx.user.id, input.id)),
     ledger: protectedProcedure.query(({ ctx }) => getLedger(ctx.user.id)),
     withdrawals: protectedProcedure.query(({ ctx }) =>
       getUserWithdrawals(ctx.user.id)
@@ -121,6 +130,44 @@ export const appRouter = router({
     admin: router({
       stats: adminProcedure.query(() => getAdminStats()),
       trends: adminProcedure.query(() => getAdminTrends()),
+      kycRequests: adminProcedure
+        .input(
+          z
+            .object({
+              status: z
+                .enum([
+                  "requested",
+                  "submitted",
+                  "under_review",
+                  "approved",
+                  "rejected",
+                ])
+                .optional(),
+            })
+            .optional()
+        )
+        .query(({ input }) => getKycRequests(input?.status)),
+      requestKyc: adminProcedure
+        .input(
+          z.object({
+            userId: z.number().int().positive(),
+            reason: z.string().max(255).optional(),
+          })
+        )
+        .mutation(({ ctx, input }) =>
+          requestKyc(ctx.user.id, input.userId, input.reason)
+        ),
+      reviewKyc: adminProcedure
+        .input(
+          z.object({
+            id: z.number().int().positive(),
+            status: z.enum(["under_review", "approved", "rejected"]),
+            reviewerNote: z.string().max(500).optional(),
+          })
+        )
+        .mutation(({ ctx, input }) =>
+          reviewKyc(ctx.user.id, input.id, input.status, input.reviewerNote)
+        ),
       activateTask: adminProcedure
         .input(
           z.object({

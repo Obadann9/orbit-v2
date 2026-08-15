@@ -8,6 +8,7 @@ import {
   activateTask,
   activateTaskWithDependencies,
   getAdminUsers,
+  getKycStatus,
   getNotifications,
   canViewWithdrawal,
   sortWithdrawalAudit,
@@ -18,6 +19,10 @@ import {
 } from "./db";
 import type { TrpcContext } from "./_core/context";
 import { publishToUser, subscribeToUser } from "./realtime";
+import {
+  ORBIT_POLICY_NOTICE,
+  ORBIT_POLICY_SECTIONS,
+} from "../client/src/policyContent";
 
 function context(role: "user" | "admin" = "user", userId = 7): TrpcContext {
   return {
@@ -528,5 +533,80 @@ describe("Orbit withdrawal details", () => {
     await expect(
       anonymous.orbit.withdrawalDetails({ id: 101 })
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("Orbit KYC safeguards", () => {
+  it("keeps KYC queue and review actions restricted to administrators", async () => {
+    const user = appRouter.createCaller(context("user"));
+    await expect(user.orbit.admin.kycRequests()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      user.orbit.admin.requestKyc({ userId: 987654321 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      user.orbit.admin.reviewKyc({ id: 1, status: "approved" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("keeps a user's KYC status isolated and prevents duplicate active requests", async () => {
+    const targetUserId = Number(`8${Date.now().toString().slice(-8)}`);
+    const admin = appRouter.createCaller(context("admin", 7));
+    const created = await admin.orbit.admin.requestKyc({
+      userId: targetUserId,
+      reason: "KYC test request",
+    });
+    await expect(
+      admin.orbit.admin.requestKyc({ userId: targetUserId })
+    ).rejects.toThrow("active KYC request");
+
+    const ownerStatus = await appRouter
+      .createCaller(context("user", targetUserId))
+      .orbit.kycStatus();
+    const otherStatus = await appRouter
+      .createCaller(context("user", targetUserId + 1))
+      .orbit.kycStatus();
+    expect(ownerStatus?.id).toBe(created.id);
+    expect(otherStatus?.id).not.toBe(created.id);
+    expect((await getKycStatus(targetUserId))?.userId).toBe(targetUserId);
+  });
+
+  it("requires user submission before an administrator can review KYC", async () => {
+    const targetUserId = Number(`7${Date.now().toString().slice(-8)}`);
+    const admin = appRouter.createCaller(context("admin", 7));
+    const created = await admin.orbit.admin.requestKyc({
+      userId: targetUserId,
+    });
+    await expect(
+      admin.orbit.admin.reviewKyc({ id: created.id, status: "approved" })
+    ).rejects.toThrow("not ready for review");
+
+    await appRouter
+      .createCaller(context("user", targetUserId))
+      .orbit.submitKyc({ id: created.id });
+    await expect(
+      admin.orbit.admin.reviewKyc({ id: created.id, status: "approved" })
+    ).rejects.toThrow("not ready for review");
+    await admin.orbit.admin.reviewKyc({
+      id: created.id,
+      status: "under_review",
+    });
+    await admin.orbit.admin.reviewKyc({ id: created.id, status: "approved" });
+    expect((await getKycStatus(targetUserId))?.status).toBe("approved");
+  });
+});
+
+describe("Orbit in-app policy content", () => {
+  it("includes the visible usage, payout, KYC, and privacy policy sections", () => {
+    expect(ORBIT_POLICY_NOTICE).toContain("qualified counsel");
+    expect(ORBIT_POLICY_SECTIONS.map(section => section.title)).toEqual([
+      "Responsible use",
+      "Points and cash-outs",
+      "Identity verification",
+      "Privacy and account data",
+      "Updates and contact",
+    ]);
+    expect(ORBIT_POLICY_SECTIONS[2].body).toContain("not self-service");
   });
 });

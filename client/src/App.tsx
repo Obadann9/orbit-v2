@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Area,
@@ -18,6 +18,7 @@ import { useAuth } from "./_core/hooks/useAuth";
 import { startLogin } from "./const";
 import { trpc } from "./lib/trpc";
 import WithdrawalDetails from "./components/WithdrawalDetails";
+import { ORBIT_POLICY_NOTICE, ORBIT_POLICY_SECTIONS } from "./policyContent";
 import {
   ArrowUpRight,
   Bell,
@@ -26,6 +27,8 @@ import {
   CircleHelp,
   Copy,
   ExternalLink,
+  FileText,
+  Fingerprint,
   LogOut,
   Menu,
   ShieldCheck,
@@ -664,6 +667,174 @@ function NotificationSettings() {
   );
 }
 
+const KYC_COPY: Record<string, { title: string; body: string; tone: string }> =
+  {
+    requested: {
+      title: "Verification requested",
+      body: "An administrator needs you to confirm that you are ready for secure identity verification.",
+      tone: "requested",
+    },
+    submitted: {
+      title: "Verification submitted",
+      body: "Your request is in the review queue. We will notify you once there is an update.",
+      tone: "submitted",
+    },
+    under_review: {
+      title: "Under review",
+      body: "An administrator is reviewing your identity-verification request.",
+      tone: "under-review",
+    },
+    approved: {
+      title: "Verification approved",
+      body: "Your identity-verification review is complete.",
+      tone: "approved",
+    },
+    rejected: {
+      title: "Verification needs attention",
+      body: "Review the administrator note below, then contact support if you need help.",
+      tone: "rejected",
+    },
+  };
+
+function KycStatusCard() {
+  const status = trpc.orbit.kycStatus.useQuery();
+  const utils = trpc.useUtils();
+  const submit = trpc.orbit.submitKyc.useMutation({
+    onSuccess: () => {
+      utils.orbit.kycStatus.invalidate();
+      toast.success("Verification submitted for review");
+    },
+    onError: error => toast.error(error.message),
+  });
+  if (status.isLoading) {
+    return (
+      <section className="kyc-status-card is-loading" aria-busy="true">
+        <div className="kyc-status-icon">
+          <Fingerprint size={21} />
+        </div>
+        <div className="kyc-status-copy">
+          <span className="eyebrow">IDENTITY CHECK</span>
+          <h2>Checking verification status</h2>
+          <p>Your account status is being retrieved securely.</p>
+        </div>
+      </section>
+    );
+  }
+  if (status.isError) {
+    return (
+      <section className="kyc-status-card is-error" role="alert">
+        <div className="kyc-status-icon">
+          <Fingerprint size={21} />
+        </div>
+        <div className="kyc-status-copy">
+          <span className="eyebrow">IDENTITY CHECK</span>
+          <h2>Status unavailable</h2>
+          <p>We could not load your verification status. Try again shortly.</p>
+          <button
+            className="text-button kyc-retry"
+            onClick={() => status.refetch()}
+          >
+            Retry status check
+          </button>
+        </div>
+      </section>
+    );
+  }
+  const request = status.data;
+  const copy = request ? KYC_COPY[request.status] : undefined;
+  return (
+    <section className={`kyc-status-card ${copy?.tone || "idle"}`}>
+      <div className="kyc-status-icon">
+        <Fingerprint size={21} />
+      </div>
+      <div className="kyc-status-copy">
+        <span className="eyebrow">IDENTITY CHECK</span>
+        <h2>{copy?.title || "No verification requested"}</h2>
+        <p>
+          {copy?.body ||
+            "KYC is only initiated by an Orbit administrator when it is required for an account action."}
+        </p>
+        {request?.reason && (
+          <small className="kyc-note">Reason: {request.reason}</small>
+        )}
+        {request?.reviewerNote && (
+          <small className="kyc-note">
+            Review note: {request.reviewerNote}
+          </small>
+        )}
+        {request?.status === "requested" && (
+          <button
+            className="primary-button kyc-submit"
+            disabled={submit.isPending}
+            onClick={() => submit.mutate({ id: request.id })}
+          >
+            {submit.isPending ? "Submitting…" : "Submit verification"}
+            <ArrowUpRight size={15} />
+          </button>
+        )}
+      </div>
+      {request && (
+        <span className={`kyc-pill ${copy?.tone}`}>
+          {request.status.replace("_", " ")}
+        </span>
+      )}
+    </section>
+  );
+}
+
+function PolicySheet({ close }: { close: () => void }) {
+  return (
+    <div className="modal-backdrop policy-backdrop" onClick={close}>
+      <section
+        className="policy-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="policy-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <header className="sheet-header">
+          <div>
+            <span className="eyebrow">ORBIT POLICIES</span>
+            <h2 id="policy-title">Usage & privacy</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={close}
+            aria-label="Close policies"
+          >
+            <X size={19} />
+          </button>
+        </header>
+        <div className="policy-content">
+          <p className="policy-intro">{ORBIT_POLICY_NOTICE}</p>
+          {ORBIT_POLICY_SECTIONS.map(section => (
+            <section key={section.title}>
+              <h3>{section.title}</h3>
+              <p>{section.body}</p>
+            </section>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function PolicyAccess() {
+  const [showPolicies, setShowPolicies] = useState(false);
+  return (
+    <>
+      <button className="settings-row" onClick={() => setShowPolicies(true)}>
+        <FileText size={17} />
+        <span>
+          Terms & policy<small>Usage, privacy, and KYC</small>
+        </span>
+        <ChevronRight size={16} />
+      </button>
+      {showPolicies && <PolicySheet close={() => setShowPolicies(false)} />}
+    </>
+  );
+}
+
 function Me({
   user,
   isAdmin,
@@ -708,6 +879,7 @@ function Me({
           <span>DAY STREAK</span>
         </div>
       </div>
+      <KycStatusCard />
       <section className="settings-list">
         <div className="settings-label">ACCOUNT</div>
         <button className="settings-row">
@@ -731,13 +903,7 @@ function Me({
           </span>
           <ChevronRight size={16} />
         </button>
-        <button className="settings-row">
-          <CircleHelp size={17} />
-          <span>
-            How Orbit works<small>Learn the basics</small>
-          </span>
-          <ChevronRight size={16} />
-        </button>
+        <PolicyAccess />
         {isAdmin && (
           <button className="settings-row admin-row" onClick={onAdmin}>
             <ShieldCheck size={17} />
@@ -791,6 +957,9 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
     "createdAt"
   );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [kycFilter, setKycFilter] = useState<
+    "all" | "requested" | "submitted" | "under_review" | "approved" | "rejected"
+  >("all");
   const filterInput = useMemo(
     () => ({
       status: statusFilter === "all" ? undefined : statusFilter,
@@ -822,6 +991,9 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
   const trends = trpc.orbit.admin.trends.useQuery();
   const rows = trpc.orbit.admin.withdrawals.useQuery(filterInput);
   const users = trpc.orbit.admin.users.useQuery();
+  const kycRequests = trpc.orbit.admin.kycRequests.useQuery(
+    kycFilter === "all" ? undefined : { status: kycFilter }
+  );
   const setRole = trpc.orbit.admin.setUserRole.useMutation({
     onSuccess: () => {
       toast.success("User role updated");
@@ -834,6 +1006,20 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
       stats.refetch();
       rows.refetch();
     },
+  });
+  const requestKyc = trpc.orbit.admin.requestKyc.useMutation({
+    onSuccess: () => {
+      toast.success("KYC request sent to the user");
+      kycRequests.refetch();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const reviewKyc = trpc.orbit.admin.reviewKyc.useMutation({
+    onSuccess: (_, variables) => {
+      toast.success(`KYC marked ${variables.status.replace("_", " ")}`);
+      kycRequests.refetch();
+    },
+    onError: error => toast.error(error.message),
   });
   const data = stats.data || {
     users: 1248,
@@ -1122,6 +1308,113 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
           </div>
         </div>
       </section>
+      <section className="section-block kyc-admin-panel">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">IDENTITY VERIFICATION</span>
+            <h2>KYC review queue</h2>
+          </div>
+          <span className="section-count">ADMIN INITIATED</span>
+        </div>
+        <div className="kyc-admin-toolbar">
+          <p>
+            Request KYC from the user directory only. Users submit readiness,
+            then this queue controls the review decision.
+          </p>
+          <select
+            aria-label="Filter KYC requests"
+            value={kycFilter}
+            onChange={event =>
+              setKycFilter(event.target.value as typeof kycFilter)
+            }
+          >
+            <option value="all">All KYC statuses</option>
+            <option value="requested">Requested</option>
+            <option value="submitted">Submitted</option>
+            <option value="under_review">Under review</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <div className="withdrawal-table kyc-admin-list">
+          {kycRequests.isLoading && (
+            <p className="notification-empty" aria-busy="true">
+              Loading KYC requests…
+            </p>
+          )}
+          {kycRequests.isError && (
+            <div className="kyc-list-error" role="alert">
+              <p>Unable to load the KYC queue.</p>
+              <button
+                className="text-button"
+                onClick={() => kycRequests.refetch()}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!kycRequests.isLoading &&
+            !kycRequests.isError &&
+            (kycRequests.data || []).map((item: any) => (
+              <div className="withdrawal-row kyc-admin-row" key={item.id}>
+                <div>
+                  <strong>
+                    Request #{item.id} · User #{item.userId}
+                  </strong>
+                  <small>
+                    {item.reason || "No reason recorded"} ·{" "}
+                    {dateLabel(item.requestedAt)}
+                  </small>
+                  {item.reviewerNote && (
+                    <small>Note: {item.reviewerNote}</small>
+                  )}
+                </div>
+                <span className={`pending-badge kyc-state-${item.status}`}>
+                  {item.status.replace("_", " ")}
+                </span>
+                <div className="table-actions">
+                  {item.status === "submitted" && (
+                    <button
+                      onClick={() =>
+                        reviewKyc.mutate({
+                          id: item.id,
+                          status: "under_review",
+                        })
+                      }
+                    >
+                      Start review
+                    </button>
+                  )}
+                  {item.status === "under_review" && (
+                    <>
+                      <button
+                        onClick={() =>
+                          reviewKyc.mutate({ id: item.id, status: "approved" })
+                        }
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() =>
+                          reviewKyc.mutate({ id: item.id, status: "rejected" })
+                        }
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          {!kycRequests.isLoading &&
+            !kycRequests.isError &&
+            !kycRequests.data?.length && (
+              <p className="notification-empty">
+                No KYC requests match this filter.
+              </p>
+            )}
+        </div>
+      </section>
       <section className="section-block">
         <div className="section-heading">
           <div>
@@ -1147,6 +1440,18 @@ function Admin({ onOpenDetails }: { onOpenDetails: (id: number) => void }) {
                 }
               >
                 {item.role === "admin" ? "Demote" : "Make admin"}
+              </button>
+              <button
+                className="role-toggle kyc-request-action"
+                disabled={requestKyc.isPending}
+                onClick={() =>
+                  requestKyc.mutate({
+                    userId: item.id,
+                    reason: "Account security or payout review",
+                  })
+                }
+              >
+                Request KYC
               </button>
             </div>
           ))}
